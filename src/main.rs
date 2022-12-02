@@ -16,7 +16,7 @@ use csv::Writer;
 use serde::{Serialize,Deserialize};
 
 
-use finit_diff::{dx,dy,laplace,poisson_relax};
+use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,meanCx,meanCy};
 use io::writeMat;
 use std::fs;
 
@@ -36,6 +36,8 @@ struct System{
 impl System{
     fn step_t(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
+        let mut jx = Array2::<f64>::zeros((NX,NY));
+        let mut jy = Array2::<f64>::zeros((NX,NY));
         delta+=&(laplace(&self.T));
         delta-=&(dy(&self.psi)*dx(&self.T));
         delta+=&(dx(&self.psi)*dy(&self.T));
@@ -53,11 +55,42 @@ impl System{
     }
     fn step_c(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&(laplace(&self.C));
-        delta+=&(self.params.R*dx(&self.T));
-        delta-=&(dy(&self.psi)*dx(&self.phi));
-        delta+=&(dx(&self.psi)*dy(&self.phi));
-        return delta
+        let mut jx = Array2::<f64>::zeros((NX,NY));
+        let mut jy = Array2::<f64>::zeros((NX,NY));
+        let vx=dy(&self.psi);
+        let vy=dx(&self.psi);
+
+        let cx = dx_b(&self.C);
+        let cy = dy_b(&self.C);
+        let tx = dx_b(&self.T);
+        let ty = dy_b(&self.T);
+        let mut c_loc= meanCx(&self.C);
+
+        jx+=&tx;
+        jx+=&cx;
+        jx+=&(dx_b(&vx)*&c_loc);
+
+        c_loc= meanCy(&self.C);
+        jy+=&ty;
+        jy+=&cy;
+        jy+=&(dy_b(&vx)*&c_loc);
+
+        for i in 1..NX{
+            let c_l = C[[i,0]]+C[[i-1,0]];
+            jx[[i,0]] = (psi[[i,1]]+psi[[i-1,1]])*2*c_l;
+            jx[[i,0]] += cx[[i,0]];
+            jx[[i,0]] += tx[[i,0]]*c_l;
+
+            c_l = C[[i,NY-1]]+C[[i-1,NY-1]];
+
+            jx[[i,NY-1]] = (-psi[[i,NY-2]]-psi[[i-1,NY-2]])*2*c_l;
+            jx[[i,NY-1]] += cx[[i,NY-1]];
+            jx[[i,NY-1]] += tx[[i,NY-1]]*c_l;
+        
+        }
+
+        delta+=&(&dx_f(&jx)+&dy_f(&jy));
+        return delta;
     }
 
     fn step_psi(&self)->Array2<f64>{
@@ -84,14 +117,27 @@ impl System{
 
     }
 }
+fn log_params(time:f64,system: &System)->Row{
+    let mut nu  =0.0;
+    let shape = system.T.dim();
+    for i in 1..shape.0-1{
+        nu+= system.T[[i,shape.1-1]]-system.T[[i,shape.1-2]]
+    }
+    nu/=H*(shape.0 as f64)-2.0;
 
+   return Row{
+        t:time,
+        psi_m:*(system.psi.max().unwrap()),
+        nu:nu,
+   } 
+}
 
 
 #[derive(Serialize)]
 pub struct Row{
     t:f64,
     psi_m:f64,
-    R:f64,
+    nu:f64,
 }
 
 
@@ -121,17 +167,13 @@ fn main() {
     let mut wtr = Writer::from_path("foo.csv").unwrap();
 
     let mut time= 0.0;
-    for _x in 0..100000{
+    for _x in 0..10{
         system.next_step(DT);
         time+=DT;
 
         if _x % 10==0{
 
-            let res =  Row{
-            t:time,
-            psi_m:*(system.psi.max().unwrap()),
-            R:R
-        };
+            let res =  log_params(time,&system);
             wtr.serialize(res).unwrap();
         }
 
