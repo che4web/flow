@@ -53,7 +53,7 @@ pub fn dx_f(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
     for j in 0..shape.0-1{
-        for i in 0..shape.1-1{
+        for i in 0..shape.1{
             delta[[j,i]]= arr[[j+1,i]]-arr[[j,i]];
         }
     }
@@ -62,7 +62,7 @@ pub fn dx_f(arr: &Array2<f64>)->Array2<f64> {
 pub fn dy_f(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
-    for j in 0..shape.0-1{
+    for j in 0..shape.0{
         for i in 0..shape.1-1{
             delta[[j,i]]= arr[[j,i+1]]-arr[[j,i]];
         }
@@ -73,8 +73,8 @@ pub fn dy_f(arr: &Array2<f64>)->Array2<f64> {
 pub fn dx_b(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
-    for j in 0..shape.0-1{
-        for i in 0..shape.1-1{
+    for j in 1..shape.0{
+        for i in 0..shape.1{
             delta[[j,i]]= arr[[j,i]]-arr[[j-1,i]];
         }
     }
@@ -83,29 +83,29 @@ pub fn dx_b(arr: &Array2<f64>)->Array2<f64> {
 pub fn dy_b(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
-    for j in 0..shape.0-1{
-        for i in 0..shape.1-1{
+    for j in 0..shape.0{
+        for i in 1..shape.1{
             delta[[j,i]]= arr[[j,i]]-arr[[j,i-1]];
         }
     }
     return delta
 }
-pub fn meanCx(arr: &Array2<f64>)->Array2<f64> {
+pub fn mean_cx(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
     for j in 0..shape.0-1{
-        for i in 0..shape.1-1{
-            delta[[j,i]]= arr[[j,i]]+arr[[j-1,i]];
+        for i in 0..shape.1{
+            delta[[j,i]]= (arr[[j,i]]+arr[[j+1,i]])/2.0;
         }
     }
     return delta
 }
-pub fn meanCy(arr: &Array2<f64>)->Array2<f64> {
+pub fn mean_cy(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
-    for j in 0..shape.0-1{
+    for j in 0..shape.0{
         for i in 0..shape.1-1{
-            delta[[j,i]]= arr[[j,i]]+arr[[j,i+1]];
+            delta[[j,i]]= (arr[[j,i]]+arr[[j,i+1]])/2.0;
         }
     }
     return delta
