@@ -47,8 +47,98 @@ struct System{
     vx:Array2<f64>,
     vy:Array2<f64>,
     params:Params,
+    solverConc:SolverConc,
 }
+struct SolverConc{
+    vx:Array2<f64>,
+    vy:Array2<f64>,
+    jx:Array2<f64>,
+    jy:Array2<f64>,
+    djx:Array2<f64>,
+    djy:Array2<f64>,
+    delta:Array2<f64>,
+    c_loc:Array2<f64>,
 
+}
+impl SolverConc {
+    pub fn new()->Self{
+        return Self{
+            vx:Array2::<f64>::zeros((NX,NY)),
+            vy:Array2::<f64>::zeros((NX,NY)),
+            jx:Array2::<f64>::zeros((NX,NY)),
+            jy:Array2::<f64>::zeros((NX,NY)),
+            djx:Array2::<f64>::zeros((NX,NY)),
+            djy:Array2::<f64>::zeros((NX,NY)),
+            delta:Array2::<f64>::zeros((NX,NY)),
+            c_loc:Array2::<f64>::zeros((NX,NY)),
+        }
+    }
+    fn calc_v(&mut self,psi:&Array2<f64>){
+        self.vx=-dy(&psi);
+        self.vy=dx(&psi);
+        for i in 1..NX{
+            self.vx[[i,0]] = -psi[[i,1]];
+            self.vx[[i,NY-1]] = psi[[i,NY-2]];
+        }
+
+        for j in 1..NY{
+            self.vy[[0,j]] = psi[[1,j]];
+            self.vy[[NX-1,j]] = -psi[[NX-2,j]];
+        }
+        self.vx = mean_cx(&self.vx);
+        self.vy = mean_cy(&self.vy);
+    }
+    fn solve(&mut self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->&Array2<f64> {
+
+        let le = params.Le;
+        let l = params.l;
+        self.delta.fill(0.0);
+        self.jx.fill(0.0);
+        self.jy.fill(0.0);
+        self.calc_v(&psi);
+
+
+        self.c_loc= mean_cx(&c);
+
+        self.jx+=&(dx_b(&t)*0.0);
+        self.jx+=&(dx_b(&c)*le);
+        self.jx+=&(&self.vx*&self.c_loc);
+
+        self.c_loc= mean_cy(&c);
+        self.jy+=&(dy_b(&t)*0.0);
+        self.jy+=&(dy_b(&c)*le);
+        self.jy+=&(&self.vy*&self.c_loc);
+        self.jy+=&(le/l*&self.c_loc*H);
+
+        dx_f(&self.jx,&mut self.djx);
+        dy_f(&self.jy,&mut self.djy);
+
+        for j in 1..NY{
+            self.djx[[0,j]] = 2.0*self.jx[[1,j]];
+            self.djx[[NX-1,j]] = -2.0*self.jx[[NX-1,j]];
+            //djy[[NX-1,j]] = -0.0;
+        }
+
+        for i in 1..NX{
+            self.djy[[i,0]] = 2.0*(self.jy[[i,1]]);
+            self.djy[[i,NY-1]] = -2.0*(self.jy[[i,NY-1]]);
+        }
+
+        // djx = dx_f(&jx);
+        // djy = dy_f(&jy);
+
+
+        self.delta+=&(&self.djx+&self.djy);
+        self.delta[[0,0]]=-2.0*(-self.jx[[1,0]]-self.jy[[0,1]]);
+        self.delta[[0,NY-1]]=-2.0*(-self.jx[[1,NY-1]]+self.jy[[0,NY-1]]);
+        self.delta[[NX-1,0]]=-2.0*(self.jx[[NX-1,0]]-self.jy[[NX-1,1]]);
+        self.delta[[NX-1,NY-1]]=-2.0*(self.jx[[NX-1,NY-1]]+self.jy[[NX-1,NY-1]]);
+        
+        self.delta/=H*H;
+        return &self.delta;
+    }
+
+}
 impl System{
     fn step_t(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
@@ -71,79 +161,17 @@ impl System{
         delta-=&(self.params.B*dx(&self.C)/H);
         return delta
     }
-    fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->Array2<f64> {
-
-        let le = params.Le;
-        let l = params.l;
-
-        let mut delta = Array2::<f64>::zeros((NX,NY));
-        let mut vx=-dy(&psi);
-        let mut vy=dx(&psi);
-        for i in 1..NX{
-            vx[[i,0]] = -psi[[i,1]];
-            vx[[i,NY-1]] = psi[[i,NY-2]];
-        }
-
-        for j in 1..NY{
-            vy[[0,j]] = psi[[1,j]];
-            vy[[NX-1,j]] = -psi[[NX-2,j]];
-        }
-        vx = mean_cx(&vx);
-        vy = mean_cy(&vy);
-
-
-        let mut c_loc= mean_cx(&c);
-
-        let mut jx = Array2::<f64>::zeros((NX,NY));
-        let mut jy = Array2::<f64>::zeros((NX,NY));
-        jx+=&(dx_b(&t)*0.0);
-        jx+=&(dx_b(&c)*le);
-        jx+=&(&vx*&c_loc);
-
-        c_loc= mean_cy(&c);
-        jy+=&(dy_b(&t)*0.0);
-        jy+=&(dy_b(&c)*le);
-        jy+=&(&vy*&c_loc);
-        jy+=&(le/l*&c_loc*H);
-
-        let mut djx = dx_f(&jx);
-        let mut djy = dy_f(&jy);
-        for j in 1..NY{
-            djx[[0,j]] = 2.0*jx[[1,j]];
-            djx[[NX-1,j]] = -2.0*jx[[NX-1,j]];
-            //djy[[NX-1,j]] = -0.0;
-        }
-
-        for i in 1..NX{
-            djy[[i,0]] = 2.0*(jy[[i,1]]);
-            djy[[i,NY-1]] = -2.0*(jy[[i,NY-1]]);
-        }
-
-        // djx = dx_f(&jx);
-        // djy = dy_f(&jy);
-
-
-        delta+=&(&djx+&djy);
-        delta[[0,0]]=-2.0*(-jx[[1,0]]-jy[[0,1]]);
-        delta[[0,NY-1]]=-2.0*(-jx[[1,NY-1]]+jy[[0,NY-1]]);
-        delta[[NX-1,0]]=-2.0*(jx[[NX-1,0]]-jy[[NX-1,1]]);
-        delta[[NX-1,NY-1]]=-2.0*(jx[[NX-1,NY-1]]+jy[[NX-1,NY-1]]);
-        
-        delta/=H*H;
-        return delta;
-    }
-
     fn step_psi(&mut self){
         poisson_relax(&self.phi,&mut self.psi,H)
     }
 
     fn next_step(&mut self,_dt:f64){
         self.phi+= &(self.step_phi()*_dt);
-       // self.step_psi();
+        self.step_psi();
         self.vx=-dy(&self.psi);
         self.vy=dx(&self.psi);
         self.T+=&(self.step_t()*_dt);
-        self.C+=&(self.step_c(&self.psi,&self.T,&self.C,&self.params.paramsC)*_dt);
+        self.C+=&(self.solverConc.solve(&self.psi,&self.T,&self.C,&self.params.paramsC)*_dt);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
@@ -201,6 +229,7 @@ fn main() {
         vx:Array2::<f64>::zeros((NX,NY)),
         vy:Array2::<f64>::zeros((NX,NY)),
         params:params,
+        solverConc:SolverConc::new(),
     };
     //set initial 
     system.phi[[NX/2,NY/2]]=1.0;
