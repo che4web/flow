@@ -48,6 +48,7 @@ struct System{
     vy:Array2<f64>,
     params:Params,
 }
+
 impl System{
     fn step_t(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
@@ -63,8 +64,8 @@ impl System{
     fn step_phi(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
         delta+=&(laplace(&self.phi));
-        delta-=&(dy(&self.psi)*dx(&self.phi));
-        delta+=&(dx(&self.psi)*dy(&self.phi));
+        delta+=&(&self.vx*dx(&self.phi));
+        delta+=&(&self.vy*dy(&self.phi));
         delta/=H*H;
         delta+=&(self.params.R*dx(&self.T)/H);
         delta-=&(self.params.B*dx(&self.C)/H);
@@ -90,22 +91,18 @@ impl System{
         vx = mean_cx(&vx);
         vy = mean_cy(&vy);
 
-        let cx = dx_b(&c)*le;
-        let cy = dy_b(&c)*le;
-        let tx = dx_b(&t)*0.0;
-        let ty = dy_b(&t)*0.0;
 
         let mut c_loc= mean_cx(&c);
 
         let mut jx = Array2::<f64>::zeros((NX,NY));
         let mut jy = Array2::<f64>::zeros((NX,NY));
-        jx+=&tx;
-        jx+=&cx;
+        jx+=&(dx_b(&t)*0.0);
+        jx+=&(dx_b(&c)*le);
         jx+=&(&vx*&c_loc);
 
         c_loc= mean_cy(&c);
-        jy+=&ty;
-        jy+=&cy;
+        jy+=&(dy_b(&t)*0.0);
+        jy+=&(dy_b(&c)*le);
         jy+=&(&vy*&c_loc);
         jy+=&(le/l*&c_loc*H);
 
@@ -136,13 +133,13 @@ impl System{
         return delta;
     }
 
-    fn step_psi(&self)->Array2<f64>{
-        poisson_relax(&self.phi,&self.psi,H)
+    fn step_psi(&mut self){
+        poisson_relax(&self.phi,&mut self.psi,H)
     }
 
     fn next_step(&mut self,_dt:f64){
         self.phi+= &(self.step_phi()*_dt);
-        self.psi = self.step_psi();
+       // self.step_psi();
         self.vx=-dy(&self.psi);
         self.vy=dx(&self.psi);
         self.T+=&(self.step_t()*_dt);
