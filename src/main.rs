@@ -17,7 +17,7 @@ use csv::Writer;
 use serde::{Serialize,Deserialize};
 
 
-use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy};
+use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy,laplace_mut,dx_mut,dy_mut};
 use io::write_mat;
 use std::fs;
 
@@ -48,6 +48,40 @@ struct System{
     vy:Array2<f64>,
     params:Params,
     solverConc:SolverConc,
+    solve_t:Solver_t,
+}
+struct Solver_t{
+    dx:Array2<f64>,
+    dy:Array2<f64>,
+    delta:Array2<f64>,
+
+}
+
+impl Solver_t{
+    pub fn new()->Self{
+        return Self{
+           dx:Array2::<f64>::zeros((NX,NY)),
+           dy:Array2::<f64>::zeros((NX,NY)),
+           delta:Array2::<f64>::zeros((NX,NY))
+        }
+    }
+    fn solve(&mut self,T:&Array2<f64>,vx:&Array2<f64>,vy:&Array2<f64>,dt:f64)->&Array2<f64> {
+        self.delta.fill(0.0);
+        laplace_mut(&T,&mut self.delta);
+        //delta-=&(dy(&self.psi)*dx(&self.T));
+       // delta+=&(dx(&self.psi)*dy(&self.T));
+        dx_mut(&T,&mut self.dx);
+        self.dx*=vx;
+        self.delta+=&self.dx;
+
+        dy_mut(&T,&mut self.dy);
+        self.dy*=vy;
+
+        self.delta+=&(self.dy);
+        self.delta/=H*H/dt;
+        return &self.delta;
+    }
+
 }
 struct SolverConc{
     vx:Array2<f64>,
@@ -153,7 +187,7 @@ impl System{
     }
     fn step_phi(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&(laplace(&self.phi));
+        laplace_mut(&self.phi,&mut delta);
         delta+=&(&self.vx*dx(&self.phi));
         delta+=&(&self.vy*dy(&self.phi));
         delta/=H*H;
@@ -170,7 +204,8 @@ impl System{
         self.step_psi();
         self.vx=-dy(&self.psi);
         self.vy=dx(&self.psi);
-        self.T+=&(self.step_t()*_dt);
+       //self.T+=&(self.step_t()*_dt);
+        self.T+=(self.solve_t.solve(&self.T,&self.vx,&self.vy,_dt));
         self.C+=&(self.solverConc.solve(&self.psi,&self.T,&self.C,&self.params.paramsC)*_dt);
         self.boundary_condition();
     }
@@ -230,6 +265,7 @@ fn main() {
         vy:Array2::<f64>::zeros((NX,NY)),
         params:params,
         solverConc:SolverConc::new(),
+        solve_t:Solver_t::new(),
     };
     //set initial 
     system.phi[[NX/2,NY/2]]=1.0;
