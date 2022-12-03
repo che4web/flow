@@ -1,8 +1,9 @@
-const NX:usize=32;
-const NY:usize=32;
-const L:f64=1.0;
-const H:f64=L/((NY-1) as f64);
+const NY:usize=33;
+const NX:usize=(NY-1)*4+1;
+const L:f64=4.0;
+const H:f64=L/((NX-1) as f64);
 const DT:f64=H*H/8.0;
+
 
 //pub mod io;
 pub mod finit_diff;
@@ -20,18 +21,21 @@ use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy
 use io::write_mat;
 use std::fs;
 
+use std::time::{Duration, Instant};
 use toml;
 
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize,Deserialize,Copy,Clone)]
 struct ParamsConc{
     Le:f64,
     l:f64,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize,Deserialize,Copy,Clone)]
 struct Params{
     R:f64,
+    B:f64,
     P:f64,
+    time:f64,
     paramsC:ParamsConc,
 
 }
@@ -40,14 +44,19 @@ struct System{
     psi:Array2<f64>,
     phi:Array2<f64>,
     C:Array2<f64>,
+    vx:Array2<f64>,
+    vy:Array2<f64>,
     params:Params,
 }
 impl System{
     fn step_t(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
         delta+=&(laplace(&self.T));
-        delta-=&(dy(&self.psi)*dx(&self.T));
-        delta+=&(dx(&self.psi)*dy(&self.T));
+        //delta-=&(dy(&self.psi)*dx(&self.T));
+       // delta+=&(dx(&self.psi)*dy(&self.T));
+       //
+        delta+=&(&self.vx*dx(&self.T));
+        delta+=&(&self.vy*dy(&self.T));
         delta/=H*H;
         return delta
     }
@@ -58,23 +67,25 @@ impl System{
         delta+=&(dx(&self.psi)*dy(&self.phi));
         delta/=H*H;
         delta+=&(self.params.R*dx(&self.T)/H);
+        delta-=&(self.params.B*dx(&self.C)/H);
         return delta
     }
     fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->Array2<f64> {
-        let mut delta = Array2::<f64>::zeros((NX,NY));
-        let mut jx = Array2::<f64>::zeros((NX,NY));
-        let mut jy = Array2::<f64>::zeros((NX,NY));
-        let mut vx=dy(&psi);
-        let mut vy=-dx(&psi);
+
         let le = params.Le;
+        let l = params.l;
+
+        let mut delta = Array2::<f64>::zeros((NX,NY));
+        let mut vx=-dy(&psi);
+        let mut vy=dx(&psi);
         for i in 1..NX{
-            vx[[i,0]] = psi[[i,1]]/2.0;
-            vx[[i,NY-1]] = -psi[[i,NY-2]]/2.0;
+            vx[[i,0]] = -psi[[i,1]];
+            vx[[i,NY-1]] = psi[[i,NY-2]];
         }
 
-        for i in 1..NX{
-            vy[[i,0]] = -psi[[1,j]]/2.0;
-            vy[[i,NY-1]] = psi[[NX-2,j]]/2.0;
+        for j in 1..NY{
+            vy[[0,j]] = psi[[1,j]];
+            vy[[NX-1,j]] = -psi[[NX-2,j]];
         }
         vx = mean_cx(&vx);
         vy = mean_cy(&vy);
@@ -86,6 +97,8 @@ impl System{
 
         let mut c_loc= mean_cx(&c);
 
+        let mut jx = Array2::<f64>::zeros((NX,NY));
+        let mut jy = Array2::<f64>::zeros((NX,NY));
         jx+=&tx;
         jx+=&cx;
         jx+=&(&vx*&c_loc);
@@ -94,21 +107,31 @@ impl System{
         jy+=&ty;
         jy+=&cy;
         jy+=&(&vy*&c_loc);
+        jy+=&(le/l*&c_loc*H);
 
         let mut djx = dx_f(&jx);
         let mut djy = dy_f(&jy);
         for j in 1..NY{
-            djx[[0,j]] = -2.0*jx[[1,j]];
-            djx[[NX-1,j]] = 2.0*jx[[NX-1,j]];
+            djx[[0,j]] = 2.0*jx[[1,j]];
+            djx[[NX-1,j]] = -2.0*jx[[NX-1,j]];
+            //djy[[NX-1,j]] = -0.0;
         }
 
         for i in 1..NX{
-            djy[[i,0]] = -2.0*(jy[[i,1]]);
-            djy[[i,NY-1]] = 2.0*(jy[[i,NY-1]]);
+            djy[[i,0]] = 2.0*(jy[[i,1]]);
+            djy[[i,NY-1]] = -2.0*(jy[[i,NY-1]]);
         }
+
+        // djx = dx_f(&jx);
+        // djy = dy_f(&jy);
 
 
         delta+=&(&djx+&djy);
+        delta[[0,0]]=-2.0*(-jx[[1,0]]-jy[[0,1]]);
+        delta[[0,NY-1]]=-2.0*(-jx[[1,NY-1]]+jy[[0,NY-1]]);
+        delta[[NX-1,0]]=-2.0*(jx[[NX-1,0]]-jy[[NX-1,1]]);
+        delta[[NX-1,NY-1]]=-2.0*(jx[[NX-1,NY-1]]+jy[[NX-1,NY-1]]);
+        
         delta/=H*H;
         return delta;
     }
@@ -120,6 +143,8 @@ impl System{
     fn next_step(&mut self,_dt:f64){
         self.phi+= &(self.step_phi()*_dt);
         self.psi = self.step_psi();
+        self.vx=-dy(&self.psi);
+        self.vy=dx(&self.psi);
         self.T+=&(self.step_t()*_dt);
         self.C+=&(self.step_c(&self.psi,&self.T,&self.C,&self.params.paramsC)*_dt);
         self.boundary_condition();
@@ -149,6 +174,7 @@ fn log_params(time:f64,system: &System)->Row{
    return Row{
         t:time,
         psi_m:*(system.psi.max().unwrap()),
+        psi_l:(system.psi[[NX/4,NY/2]]),
         nu:nu,
    } 
 }
@@ -158,13 +184,13 @@ fn log_params(time:f64,system: &System)->Row{
 pub struct Row{
     t:f64,
     psi_m:f64,
+    psi_l:f64,
     nu:f64,
 }
 
 
 fn main() {
     println!("Hello, world!");
-    const R:f64 = 6000.0;
     //let mut dela =Array2::<f64>::zeros((NX,NY));
     let contents = fs::read_to_string("config.toml").unwrap() ;
     let params:Params = toml::from_str(&contents).unwrap();
@@ -175,6 +201,8 @@ fn main() {
         phi:Array2::<f64>::zeros((NX,NY)),
         T:Array2::<f64>::zeros((NX,NY)),
         C:Array2::<f64>::zeros((NX,NY)),
+        vx:Array2::<f64>::zeros((NX,NY)),
+        vy:Array2::<f64>::zeros((NX,NY)),
         params:params,
     };
     //set initial 
@@ -189,18 +217,24 @@ fn main() {
     let mut wtr = Writer::from_path("foo.csv").unwrap();
 
     let mut time= 0.0;
-    for _x in 0..10000{
+    let time_step = (params.time/DT)as usize;
+    let start = Instant::now();
+    for _x in 0..time_step{
         system.next_step(DT);
         time+=DT;
-
-        if _x % 10==0{
+/*
+        if _x % 1000==0{
 
             let res =  log_params(time,&system);
             wtr.serialize(res).unwrap();
+            //write_mat(&system.C,String::from(format!("res/c_{:05}",_x/1000)),H);
         }
-
+*/
     }
     println!("==============");
+
+     let duration = start.elapsed();
+    println!("Time elapsed in expensive_function() is: {:?}", duration);
 
     write_mat(&system.phi,String::from("phi"),H);
     write_mat(&system.psi,String::from("psi"),H);

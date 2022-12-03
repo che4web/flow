@@ -1,4 +1,5 @@
-use ndarray::{ Array2};
+use ndarray::{s, Array2,array};
+
 
 pub fn poisson_relax(phi: &Array2<f64>,psi0: &Array2<f64>,H:f64)->Array2<f64>{
     const OMEGA:f64 =1.8; 
@@ -28,15 +29,23 @@ pub fn poisson_relax(phi: &Array2<f64>,psi0: &Array2<f64>,H:f64)->Array2<f64>{
 }
 
 
-pub fn laplace(arr: &Array2<f64>)->Array2<f64> {
-    let shape = arr.dim();
+pub fn laplace(v: &Array2<f64>)->Array2<f64> {
+    let shape = v.dim();
     let mut delta = Array2::<f64>::zeros(shape);
     for j in 1..shape.0-1{
         for i in 1..shape.1-1{
-            delta[[j,i]]= arr[[j+1,i]]+arr[[j-1,i]]+arr[[j,i+1]]+arr[[j,i-1]]-4.0*arr[[j,i]];
-        }
+           delta[[j,i]]= v[[j+1,i]]+v[[j-1,i]]+v[[j,i+1]]+v[[j,i-1]]-4.0*v[[j,i]];
+       }
     }
-    return delta
+    /*
+    let tmp = -4. * &v.slice(s![1..-1, 1..-1])
+        + v.slice(s![ ..-2, 1..-1])
+        + v.slice(s![1..-1,  ..-2])
+        + v.slice(s![1..-1, 2..  ])
+        + v.slice(s![2..  , 1..-1]);
+   delta.slice_mut(s![1..-1, 1..-1]).assign(&tmp);
+   */ 
+   return delta
 }
 
 pub fn dx(arr: &Array2<f64>)->Array2<f64> {
@@ -93,9 +102,9 @@ pub fn dy_b(arr: &Array2<f64>)->Array2<f64> {
 pub fn mean_cx(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
-    for j in 0..shape.0-1{
+    for j in 1..shape.0{
         for i in 0..shape.1{
-            delta[[j,i]]= (arr[[j,i]]+arr[[j+1,i]])/2.0;
+            delta[[j,i]]= (arr[[j,i]]+arr[[j-1,i]])/2.0;
         }
     }
     return delta
@@ -104,8 +113,8 @@ pub fn mean_cy(arr: &Array2<f64>)->Array2<f64> {
     let shape = arr.dim();
     let mut delta = Array2::<f64>::zeros(shape);
     for j in 0..shape.0{
-        for i in 0..shape.1-1{
-            delta[[j,i]]= (arr[[j,i]]+arr[[j,i+1]])/2.0;
+        for i in 1..shape.1{
+            delta[[j,i]]= (arr[[j,i]]+arr[[j,i-1]])/2.0;
         }
     }
     return delta
@@ -119,9 +128,17 @@ pub fn dy(arr: &Array2<f64>)->Array2<f64> {
     let mut delta = Array2::<f64>::zeros(shape);
     for j in 1..shape.0-1{
         for i in 1..shape.1-1{
-            delta[[j,i]]=( arr[[j,i+1]]-arr[[j,i-1]])/(2.0);
-        }
-    }
+           delta[[j,i]]=( arr[[j,i+1]]-arr[[j,i-1]])/(2.0);
+       }
+   }
+
+    //let arr = array![0, 1, 2, 3];
+    //assert_eq!(arr.slice(s![1..3;-1]), array![2, 1]);
+//     let tmp=(&arr.slice(s![1..-1, 2..])-&arr.slice(s![1..-1, 0..-2]))/2.0;
+
+  //   delta.slice_mut(s![1..-1, 1..-1]).assign(&tmp);
+    //println!("{:?}",tmp.shape());
+    //delta= &x.slice(s![1..]) - &x.slice(s![..-1]);
     return delta
 }
 
