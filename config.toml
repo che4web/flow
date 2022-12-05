@@ -1,6 +1,6 @@
-R=2300
+R=2100
 B=300
 P=10
-time=10
+time=1000
 paramsC.Le=1.5e-4
 paramsC.l=30

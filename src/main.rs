@@ -1,8 +1,9 @@
-const NY:usize=33;
-const NX:usize=(NY-1)*4+1;
-const L:f64=4.0;
+const NY:usize=65;
+const NX:usize=(NY-1)*2+1;
+const L:f64=2.0;
 const H:f64=L/((NX-1) as f64);
-const DT:f64=H*H/8.0;
+const DT:f64=H*H/5.0/10.;
+const pereodic:bool = true;
 
 
 //pub mod io;
@@ -63,11 +64,12 @@ impl System{
     fn step_phi(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
         delta+=&(laplace(&self.phi));
+        delta*=self.params.P;
         delta-=&(dy(&self.psi)*dx(&self.phi));
         delta+=&(dx(&self.psi)*dy(&self.phi));
         delta/=H*H;
-        delta+=&(self.params.R*dx(&self.T)/H);
-        delta-=&(self.params.B*dx(&self.C)/H);
+        delta+=&(self.params.P*self.params.R*dx(&self.T)/H);
+        delta-=&(self.params.P*self.params.B*dx(&self.C)/H);
         return delta
     }
     fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->Array2<f64> {
@@ -136,13 +138,13 @@ impl System{
         return delta;
     }
 
-    fn step_psi(&self)->Array2<f64>{
-        poisson_relax(&self.phi,&self.psi,H)
+    fn step_psi(&mut self){
+        poisson_relax(&self.phi,&mut self.psi,H)
     }
 
     fn next_step(&mut self,_dt:f64){
         self.phi+= &(self.step_phi()*_dt);
-        self.psi = self.step_psi();
+        self.step_psi();
         self.vx=-dy(&self.psi);
         self.vy=dx(&self.psi);
         self.T+=&(self.step_t()*_dt);
@@ -150,10 +152,26 @@ impl System{
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
+        if pereodic{
 
-        for i in 1..NY-1{
-            self.phi[[0,i]]=-self.psi[[1,i]]/(H*H)*2.0;
-            self.phi[[NX-1,i]]=-self.psi[[NX-2,i]]/(H*H)*2.0;
+            for i in 0..NY{
+                self.psi[[0,i]]=self.psi[[NX-2,i]];
+                self.psi[[NX-1,i]]=self.psi[[2,i]];
+
+                self.phi[[0,i]]=self.phi[[NX-2,i]];
+                self.phi[[NX-1,i]]=self.phi[[2,i]];
+
+                self.T[[0,i]]=self.T[[NX-2,i]];
+                self.T[[NX-1,i]]=self.T[[2,i]];
+
+                self.C[[0,i]]=self.C[[NX-2,i]];
+                self.C[[NX-1,i]]=self.C[[2,i]];
+            }
+        }else{
+            for i in 1..NY-1{
+                self.phi[[0,i]]=-self.psi[[1,i]]/(H*H)*2.0;
+                self.phi[[NX-1,i]]=-self.psi[[NX-2,i]]/(H*H)*2.0;
+            }
         }
 
         for i in 1..NX-1{
@@ -219,17 +237,18 @@ fn main() {
     let mut time= 0.0;
     let time_step = (params.time/DT)as usize;
     let start = Instant::now();
-    for _x in 0..time_step{
-        system.next_step(DT);
-        time+=DT;
-/*
-        if _x % 1000==0{
-
-            let res =  log_params(time,&system);
-            wtr.serialize(res).unwrap();
-            //write_mat(&system.C,String::from(format!("res/c_{:05}",_x/1000)),H);
+    let mut  time_i=0;
+    while time < params.time{
+        for i in 0..1000{
+            system.next_step(DT);
+            time+=DT;
         }
-*/
+        time_i+=1;
+        let res =  log_params(time,&system);
+        wtr.serialize(res).unwrap();
+        if time_i %100 == 0{
+            write_mat(&system.C,String::from(format!("res/c_{:05}",time)),H);
+        }
     }
     println!("==============");
 
