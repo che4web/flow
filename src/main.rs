@@ -1,4 +1,4 @@
-const NY:usize=65;
+const NY:usize=35;
 const NX:usize=(NY-1)*2+1;
 const L:f64=2.0;
 const H:f64=L/((NX-1) as f64);
@@ -72,7 +72,7 @@ impl System{
         delta-=&(self.params.P*self.params.B*dx(&self.C)/H);
         return delta
     }
-    fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->Array2<f64> {
+    fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc,dt:f64)->Array2<f64> {
 
         let le = params.Le;
         let l = params.l;
@@ -81,25 +81,37 @@ impl System{
         let mut qew = Array2::<f64>::zeros((NX,NY));
         let mut qsn = Array2::<f64>::zeros((NX,NY));
         
-        let A = vec![0.;10];
-        for i in 0..NX{
-            for k in 0..NY{
+        let A = vec![
+            0.25/H*0.5,
+            -0.25/H*0.5,
+            le/l*0.5,
+            -le/H,
+            -le/H,
+            dt/H,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+        ];
+        for i in 1..NX-1{
+            for k in 1..NY-1{
                 let c_local=c[[i,k]]+c[[i-1,k]];
-                let  mut tmp=A[0]*(psi[[i,k+1]]+psi[[i,k-1]]+psi[[i-1,k+1]]+psi[[i-1,k-1]])*c_local;
+                let  mut tmp=A[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
                 tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
                 qew[[i,k]] = tmp;
             }
         }
-        for i in 0..NX{
-            for k in 0..NY{
+        for i in 1..NX-1{
+            for k in 1..NY-1{
                 let c_local=c[[i,k]]+c[[i,k-1]];
-                let  mut tmp=A[1]*(psi[[i+1,k]]+psi[[i-1,k]]+psi[[i+1,k-1]]+psi[[i+1,k-1]])*c_local;
+                let  mut tmp=A[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i+1,k-1]])*c_local;
                 tmp+=A[4]*(c[[i,k]]-c[[i,k-1]]);
                 qsn[[i,k]] = tmp;
             }
         }
 
-        for i in 0..NX{
+        for i in 1..NX-1{
             let mut  k=0;
             let mut c_local=c[[i,k]]+c[[i-1,k]];
             let  mut tmp=A[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
@@ -113,6 +125,37 @@ impl System{
             qew[[i,k]] = tmp;
 
         }
+        for k in 1..NY-1{
+            let mut  i=0;
+            let mut c_local=c[[i,k]]+c[[i,k-1]];
+            let  mut tmp=A[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
+            tmp+=A[3]*(c[[i,k]]-c[[i,k-1]]);
+            qsn[[i,k]] = tmp;
+
+            i=NX-1;
+            c_local=c[[i,k]]+c[[i,k-1]];
+            tmp=A[1]*(-psi[[i-1,k]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp+=A[3]*(c[[i,k]]-c[[i,k-1]]);
+            qsn[[i,k]] = tmp;
+        }
+        for i in 1..NX-1{
+            for k in 1..NY-1{
+                let q = qew[[i,k]]-qew[[i+1,k]]+qsn[[i,k]]-qsn[[i,k+1]];
+                delta[[i,k]]=c[[i,k]]+A[5]*q;
+            }
+        }
+        for i in 1..NX{
+            let k=0;
+            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i,k]])-2.0*qsn[[i,k+1]]);
+
+            let k=NY-1;
+            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i,k]])+2.0*qsn[[i,k]]);
+        }
+        for k in 0..NY{
+            delta[[0,k]]=delta[[NX-2,k]];
+            delta[[NX-1,k]]=delta[[1,k]];
+        }
+
 
 
         return delta
@@ -195,7 +238,8 @@ impl System{
         self.vx=-dy(&self.psi);
         self.vy=dx(&self.psi);
         self.T+=&(self.step_t()*_dt);
-        self.C+=&(self.step_c(&self.psi,&self.T,&self.C,&self.params.paramsC)*_dt);
+        self.C=self.step_c(&self.psi,&self.T,&self.C,&self.params.paramsC,_dt);
+        println!("{:}",self.C);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
@@ -293,7 +337,7 @@ fn main() {
         time_i+=1;
         let res =  log_params(time,&system);
         wtr.serialize(res).unwrap();
-        if time_i %100 == 0{
+        if time_i %10 == 0{
             write_mat(&system.C,String::from(format!("res/c_{:05}",time)),H);
         }
     }
