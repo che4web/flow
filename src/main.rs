@@ -78,6 +78,53 @@ impl System{
         let l = params.l;
 
         let mut delta = Array2::<f64>::zeros((NX,NY));
+        let mut qew = Array2::<f64>::zeros((NX,NY));
+        let mut qsn = Array2::<f64>::zeros((NX,NY));
+        
+        let A = vec![0.;10];
+        for i in 0..NX{
+            for k in 0..NY{
+                let c_local=c[[i,k]]+c[[i-1,k]];
+                let  mut tmp=A[0]*(psi[[i,k+1]]+psi[[i,k-1]]+psi[[i-1,k+1]]+psi[[i-1,k-1]])*c_local;
+                tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
+                qew[[i,k]] = tmp;
+            }
+        }
+        for i in 0..NX{
+            for k in 0..NY{
+                let c_local=c[[i,k]]+c[[i,k-1]];
+                let  mut tmp=A[1]*(psi[[i+1,k]]+psi[[i-1,k]]+psi[[i+1,k-1]]+psi[[i+1,k-1]])*c_local;
+                tmp+=A[4]*(c[[i,k]]-c[[i,k-1]]);
+                qsn[[i,k]] = tmp;
+            }
+        }
+
+        for i in 0..NX{
+            let mut  k=0;
+            let mut c_local=c[[i,k]]+c[[i-1,k]];
+            let  mut tmp=A[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
+            tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
+            qew[[i,k]] = tmp;
+
+            k=NY-1;
+            c_local=c[[i,k]]+c[[i-1,k]];
+            tmp=A[0]*(-psi[[i,k-1]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
+            qew[[i,k]] = tmp;
+
+        }
+
+
+        return delta
+    }
+
+ 
+    fn step_c0(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->Array2<f64> {
+
+        let le = params.Le;
+        let l = params.l;
+
+        let mut delta = Array2::<f64>::zeros((NX,NY));
         let mut vx=-dy(&psi);
         let mut vy=dx(&psi);
         for i in 1..NX{
