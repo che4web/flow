@@ -1,4 +1,4 @@
-const NY:usize=35;
+const NY:usize=33;
 const NX:usize=(NY-1)*2+1;
 const L:f64=2.0;
 const H:f64=L/((NX-1) as f64);
@@ -94,7 +94,7 @@ impl System{
             0.0,
             0.0
         ];
-        for i in 1..NX-1{
+        for i in 1..NX{
             for k in 1..NY-1{
                 let c_local=c[[i,k]]+c[[i-1,k]];
                 let  mut tmp=A[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
@@ -103,15 +103,15 @@ impl System{
             }
         }
         for i in 1..NX-1{
-            for k in 1..NY-1{
+            for k in 1..NY{
                 let c_local=c[[i,k]]+c[[i,k-1]];
-                let  mut tmp=A[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i+1,k-1]])*c_local;
+                let  mut tmp=A[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i-1,k-1]])*c_local;
                 tmp+=A[4]*(c[[i,k]]-c[[i,k-1]]);
                 qsn[[i,k]] = tmp;
             }
         }
 
-        for i in 1..NX-1{
+        for i in 1..NX{
             let mut  k=0;
             let mut c_local=c[[i,k]]+c[[i-1,k]];
             let  mut tmp=A[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
@@ -125,7 +125,7 @@ impl System{
             qew[[i,k]] = tmp;
 
         }
-        for k in 1..NY-1{
+        for k in 1..NY{
             let mut  i=0;
             let mut c_local=c[[i,k]]+c[[i,k-1]];
             let  mut tmp=A[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
@@ -144,16 +144,18 @@ impl System{
                 delta[[i,k]]=c[[i,k]]+A[5]*q;
             }
         }
-        for i in 1..NX{
+        for i in 1..NX-1{
             let k=0;
-            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i,k]])-2.0*qsn[[i,k+1]]);
+            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i+1,k]])-2.0*qsn[[i,k+1]]);
 
             let k=NY-1;
-            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i,k]])+2.0*qsn[[i,k]]);
+            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i+1,k]])+2.0*qsn[[i,k]]);
         }
         for k in 0..NY{
             delta[[0,k]]=delta[[NX-2,k]];
             delta[[NX-1,k]]=delta[[1,k]];
+            //delta[[0,k]]=c[[NX-2,k]];
+            //delta[[NX-1,k]]=c[[1,k]];
         }
 
 
@@ -239,7 +241,6 @@ impl System{
         self.vy=dx(&self.psi);
         self.T+=&(self.step_t()*_dt);
         self.C=self.step_c(&self.psi,&self.T,&self.C,&self.params.paramsC,_dt);
-        println!("{:}",self.C);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
@@ -247,16 +248,16 @@ impl System{
 
             for i in 0..NY{
                 self.psi[[0,i]]=self.psi[[NX-2,i]];
-                self.psi[[NX-1,i]]=self.psi[[2,i]];
+                self.psi[[NX-1,i]]=self.psi[[1,i]];
 
                 self.phi[[0,i]]=self.phi[[NX-2,i]];
-                self.phi[[NX-1,i]]=self.phi[[2,i]];
+                self.phi[[NX-1,i]]=self.phi[[1,i]];
 
                 self.T[[0,i]]=self.T[[NX-2,i]];
-                self.T[[NX-1,i]]=self.T[[2,i]];
+                self.T[[NX-1,i]]=self.T[[1,i]];
 
-                self.C[[0,i]]=self.C[[NX-2,i]];
-                self.C[[NX-1,i]]=self.C[[2,i]];
+                //self.C[[0,i]]=self.C[[NX-2,i]];
+                //self.C[[NX-1,i]]=self.C[[2,i]];
             }
         }else{
             for i in 1..NY-1{
