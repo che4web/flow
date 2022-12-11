@@ -148,3 +148,37 @@ pub fn dy(arr: &Array2<f64>)->Array2<f64> {
 }
 
 
+pub fn dy_mut(arr: &Array2<f64>,delta:&mut Array2<f64> ){
+    let shape = arr.dim();
+    for j in 1..shape.0-1{
+        for i in 1..shape.1-1{
+           delta[[j,i]]=( arr[[j,i+1]]-arr[[j,i-1]])/(2.0);
+       }
+   }
+}
+pub fn dx_mut(arr: &Array2<f64>,delta:&mut Array2<f64> ){
+    let shape = arr.dim();
+    for j in 1..shape.0-1{
+        for i in 1..shape.1-1{
+           delta[[j,i]]=( arr[[j+1,i]]-arr[[j-1,i]])/(2.0);
+       }
+   }
+}
+pub fn laplace_mut(v: &Array2<f64>,delta:&mut Array2<f64>) {
+    let shape = v.dim();
+    for j in 1..shape.0-1{
+        for i in 1..shape.1-1{
+           delta[[j,i]]= v[[j+1,i]]+v[[j-1,i]]+v[[j,i+1]]+v[[j,i-1]]-4.0*v[[j,i]];
+       }
+    }
+}
+ 
+
+
+
+
+
+
+
+
+

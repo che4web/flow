@@ -18,7 +18,7 @@ use csv::Writer;
 use serde::{Serialize,Deserialize};
 
 
-use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy};
+use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy,dx_mut,dy_mut,laplace_mut};
 use io::write_mat;
 use std::fs;
 
@@ -41,34 +41,55 @@ struct Params{
 
 }
 struct System{
-    T:Array2<f64>,
-    psi:Array2<f64>,
-    phi:Array2<f64>,
+    T:Field,
+    psi:Field,
+    phi:Field,
     C:Array2<f64>,
     vx:Array2<f64>,
     vy:Array2<f64>,
     params:Params,
 }
+struct Field{
+    f:Array2<f64>,
+    dx:Array2<f64>,
+    dy:Array2<f64>,
+    lap:Array2<f64>,
+    buf:Array2<f64>,
+}
+impl Field{
+    fn new(nx:usize,ny:usize)-> Self{
+        return Self{
+        f:Array2::<f64>::zeros((nx,ny)),
+        dx:Array2::<f64>::zeros((nx,ny)),
+        dy:Array2::<f64>::zeros((nx,ny)),
+        lap:Array2::<f64>::zeros((nx,ny)),
+        buf:Array2::<f64>::zeros((nx,ny)),
+        }
+    }
+    fn diff(&mut self){
+        dx_mut(&self.f,&mut self.dx);
+        dy_mut(&self.f,&mut self.dy);
+        laplace_mut(&self.f,&mut self.lap);
+    }
+    
+}
 impl System{
     fn step_t(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&(laplace(&self.T));
-        //delta-=&(dy(&self.psi)*dx(&self.T));
-       // delta+=&(dx(&self.psi)*dy(&self.T));
-       //
-        delta+=&(&self.vx*dx(&self.T));
-        delta+=&(&self.vy*dy(&self.T));
+        delta+=&self.T.lap;
+        delta-=&(&self.psi.dy*&self.T.dx);
+        delta+=&(&self.psi.dx*&self.T.dy);
         delta/=H*H;
         return delta
     }
     fn step_phi(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&(laplace(&self.phi));
+        delta+=&self.phi.lap;
         delta*=self.params.P;
-        delta-=&(dy(&self.psi)*dx(&self.phi));
-        delta+=&(dx(&self.psi)*dy(&self.phi));
+        delta-=&(&self.psi.dy*&self.phi.dx);
+        delta+=&(&self.psi.dx*&self.phi.dy);
         delta/=H*H;
-        delta+=&(self.params.P*self.params.R*dx(&self.T)/H);
+        delta+=&(self.params.P*self.params.R*&self.T.dx/H);
         delta-=&(self.params.P*self.params.B*dx(&self.C)/H);
         return delta
     }
@@ -164,127 +185,65 @@ impl System{
     }
 
  
-    fn step_c0(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc)->Array2<f64> {
-
-        let le = params.Le;
-        let l = params.l;
-
-        let mut delta = Array2::<f64>::zeros((NX,NY));
-        let mut vx=-dy(&psi);
-        let mut vy=dx(&psi);
-        for i in 1..NX{
-            vx[[i,0]] = -psi[[i,1]];
-            vx[[i,NY-1]] = psi[[i,NY-2]];
-        }
-
-        for j in 1..NY{
-            vy[[0,j]] = psi[[1,j]];
-            vy[[NX-1,j]] = -psi[[NX-2,j]];
-        }
-        vx = mean_cx(&vx);
-        vy = mean_cy(&vy);
-
-        let cx = dx_b(&c)*le;
-        let cy = dy_b(&c)*le;
-        let tx = dx_b(&t)*0.0;
-        let ty = dy_b(&t)*0.0;
-
-        let mut c_loc= mean_cx(&c);
-
-        let mut jx = Array2::<f64>::zeros((NX,NY));
-        let mut jy = Array2::<f64>::zeros((NX,NY));
-        jx+=&tx;
-        jx+=&cx;
-        jx+=&(&vx*&c_loc);
-
-        c_loc= mean_cy(&c);
-        jy+=&ty;
-        jy+=&cy;
-        jy+=&(&vy*&c_loc);
-        jy+=&(le/l*&c_loc*H);
-
-        let mut djx = dx_f(&jx);
-        let mut djy = dy_f(&jy);
-        for j in 1..NY{
-            djx[[0,j]] = 2.0*jx[[1,j]];
-            djx[[NX-1,j]] = -2.0*jx[[NX-1,j]];
-            //djy[[NX-1,j]] = -0.0;
-        }
-
-        for i in 1..NX{
-            djy[[i,0]] = 2.0*(jy[[i,1]]);
-            djy[[i,NY-1]] = -2.0*(jy[[i,NY-1]]);
-        }
-
-        // djx = dx_f(&jx);
-        // djy = dy_f(&jy);
-
-
-        delta+=&(&djx+&djy);
-        delta[[0,0]]=-2.0*(-jx[[1,0]]-jy[[0,1]]);
-        delta[[0,NY-1]]=-2.0*(-jx[[1,NY-1]]+jy[[0,NY-1]]);
-        delta[[NX-1,0]]=-2.0*(jx[[NX-1,0]]-jy[[NX-1,1]]);
-        delta[[NX-1,NY-1]]=-2.0*(jx[[NX-1,NY-1]]+jy[[NX-1,NY-1]]);
-        
-        delta/=H*H;
-        return delta;
-    }
-
     fn step_psi(&mut self){
-        poisson_relax(&self.phi,&mut self.psi,H)
+        poisson_relax(&self.phi.f,&mut self.psi.f,H)
     }
 
     fn next_step(&mut self,_dt:f64){
-        self.phi+= &(self.step_phi()*_dt);
+        self.phi.f+= &(self.step_phi()*_dt);
+        self.phi.diff();
+
         self.step_psi();
-        self.vx=-dy(&self.psi);
-        self.vy=dx(&self.psi);
-        self.T+=&(self.step_t()*_dt);
-        self.C=self.step_c(&self.psi,&self.T,&self.C,&self.params.paramsC,_dt);
+        self.psi.diff();
+
+        self.T.f+=&(self.step_t()*_dt);
+        self.T.diff();
+
+        self.C=self.step_c(&self.psi.f,&self.T.f,&self.C,&self.params.paramsC,_dt);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
         if pereodic{
 
             for i in 0..NY{
-                self.psi[[0,i]]=self.psi[[NX-2,i]];
-                self.psi[[NX-1,i]]=self.psi[[1,i]];
+                self.psi.f[[0,i]]=self.psi.f[[NX-2,i]];
+                self.psi.f[[NX-1,i]]=self.psi.f[[1,i]];
 
-                self.phi[[0,i]]=self.phi[[NX-2,i]];
-                self.phi[[NX-1,i]]=self.phi[[1,i]];
+                self.phi.f[[0,i]]=self.phi.f[[NX-2,i]];
+                self.phi.f[[NX-1,i]]=self.phi.f[[1,i]];
 
-                self.T[[0,i]]=self.T[[NX-2,i]];
-                self.T[[NX-1,i]]=self.T[[1,i]];
+                self.T.f[[0,i]]=self.T.f[[NX-2,i]];
+                self.T.f[[NX-1,i]]=self.T.f[[1,i]];
 
                 //self.C[[0,i]]=self.C[[NX-2,i]];
                 //self.C[[NX-1,i]]=self.C[[2,i]];
             }
         }else{
             for i in 1..NY-1{
-                self.phi[[0,i]]=-self.psi[[1,i]]/(H*H)*2.0;
-                self.phi[[NX-1,i]]=-self.psi[[NX-2,i]]/(H*H)*2.0;
+                self.phi.f[[0,i]]=-self.psi.f[[1,i]]/(H*H)*2.0;
+                self.phi.f[[NX-1,i]]=-self.psi.f[[NX-2,i]]/(H*H)*2.0;
             }
         }
 
         for i in 1..NX-1{
-            self.phi[[i,0]]=-self.psi[[i,1]]/(H*H)*2.0;
-            self.phi[[i,NY-1]]=-self.psi[[i,NY-2]]/(H*H)*2.0;
+            self.phi.f[[i,0]]=-self.psi.f[[i,1]]/(H*H)*2.0;
+            self.phi.f[[i,NY-1]]=-self.psi.f[[i,NY-2]]/(H*H)*2.0;
         }
 
     }
 }
 fn log_params(time:f64,system: &System)->Row{
     let mut nu  =0.0;
-    let shape = system.T.dim();
+    let shape = system.T.f.dim();
     for i in 1..shape.0-1{
-        nu+= system.T[[i,shape.1-1]]-system.T[[i,shape.1-2]]
+        nu+= system.T.f[[i,shape.1-1]]-system.T.f[[i,shape.1-2]]
     }
     nu/=H*(shape.0 as f64)-2.0;
 
    return Row{
         t:time,
-        psi_m:*(system.psi.max().unwrap()),
-        psi_l:(system.psi[[NX/4,NY/2]]),
+        psi_m:*(system.psi.f.max().unwrap()),
+        psi_l:(system.psi.f[[NX/4,NY/2]]),
         nu:nu,
    } 
 }
@@ -307,19 +266,19 @@ fn main() {
     println!("{:?}",params.R);
 
     let mut system = System{
-        psi:Array2::<f64>::zeros((NX,NY)),
-        phi:Array2::<f64>::zeros((NX,NY)),
-        T:Array2::<f64>::zeros((NX,NY)),
+        T:Field::new(NX,NY),
+        phi:Field::new(NX,NY),
+        psi:Field::new(NX,NY),
         C:Array2::<f64>::zeros((NX,NY)),
         vx:Array2::<f64>::zeros((NX,NY)),
         vy:Array2::<f64>::zeros((NX,NY)),
         params:params,
     };
     //set initial 
-    system.phi[[NX/2,NY/2]]=1.0;
+    system.phi.f[[NX/2,NY/2]]=1.0;
     for i in 0..NX{
         for j in 0..NY{
-            system.T[[i,j]] = 1.0-(j as f64)*H;
+            system.T.f[[i,j]] = 1.0-(j as f64)*H;
             system.C[[i,j]] = 30.5-(j as f64)*H;
         }
     }
@@ -347,8 +306,8 @@ fn main() {
      let duration = start.elapsed();
     println!("Time elapsed in expensive_function() is: {:?}", duration);
 
-    write_mat(&system.phi,String::from("phi"),H);
-    write_mat(&system.psi,String::from("psi"),H);
-    write_mat(&system.T,String::from("t"),H);
+    write_mat(&system.phi.f,String::from("phi"),H);
+    write_mat(&system.psi.f,String::from("psi"),H);
+    write_mat(&system.T.f,String::from("t"),H);
     write_mat(&system.C,String::from("c"),H);
 }
