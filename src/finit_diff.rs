@@ -1,18 +1,19 @@
-use ndarray::{s, Array2,array};
-const pereodic:bool  = crate::pereodic; 
+use ndarray::{Array2};
+const PEREODIC:bool  = crate::PEREODIC; 
 
-pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,H:f64){
+pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,h:f64){
     const OMEGA:f64 =1.92; 
     //let mut delta = Array2::<f64>::zeros((N,N));
     let shape= psi.dim();
-    let NX = shape.0;
-    let NY = shape.1;
+    let nx = shape.0;
+    let ny = shape.1;
+    let h2=h*h;
     for _k in  0..1000{
         //let lap = laplace(&psi_new);
         let mut nev =0.0;
         for i in 1..shape.0-1{
             for j in 1..shape.1-1{
-                let tmp =-OMEGA*psi[[i,j]]+ OMEGA/4.0*(psi[[i+1,j]] +psi[[i-1,j]]+psi[[i,j+1]] +psi[[i,j-1]]+H*H*phi[[i,j]]);
+                let tmp =-OMEGA*psi[[i,j]]+ OMEGA/4.0*(psi[[i+1,j]] +psi[[i-1,j]]+psi[[i,j+1]] +psi[[i,j-1]]+h2*phi[[i,j]]);
 
                 psi[[i,j]] +=tmp;
                 if nev<tmp.abs(){
@@ -20,10 +21,12 @@ pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,H:f64){
                 }
             }
         }
-            for i in 0..NY{
-                psi[[0,i]]=psi[[NX-2,i]];
-                psi[[NX-1,i]]=psi[[2,i]];
+        if PEREODIC{
+            for i in 0..ny{
+                psi[[0,i]]=psi[[nx-2,i]];
+                psi[[nx-1,i]]=psi[[2,i]];
             }
+        }
 
         //println!("{:?}| {:?} | {:?} {:?}",nev,k,i_max,j_max);
         if nev < (1e-5 as f64){

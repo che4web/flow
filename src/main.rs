@@ -3,13 +3,14 @@ const NX:usize=(NY-1)*2+1;
 const L:f64=2.0;
 const H:f64=L/((NX-1) as f64);
 const DT:f64=H*H/5.0/10.;
-const pereodic:bool = true;
+const PEREODIC:bool = true;
 
 
 //pub mod io;
 pub mod finit_diff;
 pub mod io;
 //use io::{writeMat};
+
 
 use ndarray::{Array2};
 use ndarray_stats::QuantileExt;
@@ -37,16 +38,14 @@ struct Params{
     B:f64,
     P:f64,
     time:f64,
-    paramsC:ParamsConc,
+    params_c:ParamsConc,
 
 }
 struct System{
-    T:Field,
+    temp:Field,
     psi:Field,
     phi:Field,
-    C:Array2<f64>,
-    vx:Array2<f64>,
-    vy:Array2<f64>,
+    conc:Array2<f64>,
     params:Params,
 }
 struct Field{
@@ -54,7 +53,7 @@ struct Field{
     dx:Array2<f64>,
     dy:Array2<f64>,
     lap:Array2<f64>,
-    buf:Array2<f64>,
+    //buf:Array2<f64>,
 }
 impl Field{
     fn new(nx:usize,ny:usize)-> Self{
@@ -63,7 +62,7 @@ impl Field{
         dx:Array2::<f64>::zeros((nx,ny)),
         dy:Array2::<f64>::zeros((nx,ny)),
         lap:Array2::<f64>::zeros((nx,ny)),
-        buf:Array2::<f64>::zeros((nx,ny)),
+      //  buf:Array2::<f64>::zeros((nx,ny)),
         }
     }
     fn diff(&mut self){
@@ -76,9 +75,9 @@ impl Field{
 impl System{
     fn step_t(&self)->Array2<f64> {
         let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&self.T.lap;
-        delta-=&(&self.psi.dy*&self.T.dx);
-        delta+=&(&self.psi.dx*&self.T.dy);
+        delta+=&self.temp.lap;
+        delta-=&(&self.psi.dy*&self.temp.dx);
+        delta+=&(&self.psi.dx*&self.temp.dy);
         delta/=H*H;
         return delta
     }
@@ -89,8 +88,8 @@ impl System{
         delta-=&(&self.psi.dy*&self.phi.dx);
         delta+=&(&self.psi.dx*&self.phi.dy);
         delta/=H*H;
-        delta+=&(self.params.P*self.params.R*&self.T.dx/H);
-        delta-=&(self.params.P*self.params.B*dx(&self.C)/H);
+        delta+=&(self.params.P*self.params.R*&self.temp.dx/H);
+        delta-=&(self.params.P*self.params.B*dx(&self.conc)/H);
         return delta
     }
     fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc,dt:f64)->Array2<f64> {
@@ -102,7 +101,7 @@ impl System{
         let mut qew = Array2::<f64>::zeros((NX,NY));
         let mut qsn = Array2::<f64>::zeros((NX,NY));
         
-        let A = vec![
+        let a = vec![
             0.25/H*0.5,
             -0.25/H*0.5,
             le/l*0.5,
@@ -118,16 +117,16 @@ impl System{
         for i in 1..NX{
             for k in 1..NY-1{
                 let c_local=c[[i,k]]+c[[i-1,k]];
-                let  mut tmp=A[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
-                tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
+                let  mut tmp=a[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
+                tmp+=a[3]*(c[[i,k]]-c[[i-1,k]]);
                 qew[[i,k]] = tmp;
             }
         }
         for i in 1..NX-1{
             for k in 1..NY{
                 let c_local=c[[i,k]]+c[[i,k-1]];
-                let  mut tmp=A[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i-1,k-1]])*c_local;
-                tmp+=A[4]*(c[[i,k]]-c[[i,k-1]]);
+                let  mut tmp=a[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i-1,k-1]])*c_local;
+                tmp+=a[4]*(c[[i,k]]-c[[i,k-1]]);
                 qsn[[i,k]] = tmp;
             }
         }
@@ -135,42 +134,42 @@ impl System{
         for i in 1..NX{
             let mut  k=0;
             let mut c_local=c[[i,k]]+c[[i-1,k]];
-            let  mut tmp=A[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
-            tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
+            let  mut tmp=a[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
+            tmp+=a[3]*(c[[i,k]]-c[[i-1,k]]);
             qew[[i,k]] = tmp;
 
             k=NY-1;
             c_local=c[[i,k]]+c[[i-1,k]];
-            tmp=A[0]*(-psi[[i,k-1]]-psi[[i-1,k-1]])*c_local*2.0;
-            tmp+=A[3]*(c[[i,k]]-c[[i-1,k]]);
+            tmp=a[0]*(-psi[[i,k-1]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp+=a[3]*(c[[i,k]]-c[[i-1,k]]);
             qew[[i,k]] = tmp;
 
         }
         for k in 1..NY{
             let mut  i=0;
             let mut c_local=c[[i,k]]+c[[i,k-1]];
-            let  mut tmp=A[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
-            tmp+=A[3]*(c[[i,k]]-c[[i,k-1]]);
+            let  mut tmp=a[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
+            tmp+=a[3]*(c[[i,k]]-c[[i,k-1]]);
             qsn[[i,k]] = tmp;
 
             i=NX-1;
             c_local=c[[i,k]]+c[[i,k-1]];
-            tmp=A[1]*(-psi[[i-1,k]]-psi[[i-1,k-1]])*c_local*2.0;
-            tmp+=A[3]*(c[[i,k]]-c[[i,k-1]]);
+            tmp=a[1]*(-psi[[i-1,k]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp+=a[3]*(c[[i,k]]-c[[i,k-1]]);
             qsn[[i,k]] = tmp;
         }
         for i in 1..NX-1{
             for k in 1..NY-1{
                 let q = qew[[i,k]]-qew[[i+1,k]]+qsn[[i,k]]-qsn[[i,k+1]];
-                delta[[i,k]]=c[[i,k]]+A[5]*q;
+                delta[[i,k]]=c[[i,k]]+a[5]*q;
             }
         }
         for i in 1..NX-1{
             let k=0;
-            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i+1,k]])-2.0*qsn[[i,k+1]]);
+            delta[[i,k]]=c[[i,k]]+a[5]*((qew[[i,k]]-qew[[i+1,k]])-2.0*qsn[[i,k+1]]);
 
             let k=NY-1;
-            delta[[i,k]]=c[[i,k]]+A[5]*((qew[[i,k]]-qew[[i+1,k]])+2.0*qsn[[i,k]]);
+            delta[[i,k]]=c[[i,k]]+a[5]*((qew[[i,k]]-qew[[i+1,k]])+2.0*qsn[[i,k]]);
         }
         for k in 0..NY{
             delta[[0,k]]=delta[[NX-2,k]];
@@ -196,14 +195,14 @@ impl System{
         self.step_psi();
         self.psi.diff();
 
-        self.T.f+=&(self.step_t()*_dt);
-        self.T.diff();
+        self.temp.f+=&(self.step_t()*_dt);
+        self.temp.diff();
 
-        self.C=self.step_c(&self.psi.f,&self.T.f,&self.C,&self.params.paramsC,_dt);
+        self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
-        if pereodic{
+        if PEREODIC{
 
             for i in 0..NY{
                 self.psi.f[[0,i]]=self.psi.f[[NX-2,i]];
@@ -212,8 +211,8 @@ impl System{
                 self.phi.f[[0,i]]=self.phi.f[[NX-2,i]];
                 self.phi.f[[NX-1,i]]=self.phi.f[[1,i]];
 
-                self.T.f[[0,i]]=self.T.f[[NX-2,i]];
-                self.T.f[[NX-1,i]]=self.T.f[[1,i]];
+                self.temp.f[[0,i]]=self.temp.f[[NX-2,i]];
+                self.temp.f[[NX-1,i]]=self.temp.f[[1,i]];
 
                 //self.C[[0,i]]=self.C[[NX-2,i]];
                 //self.C[[NX-1,i]]=self.C[[2,i]];
@@ -234,9 +233,9 @@ impl System{
 }
 fn log_params(time:f64,system: &System)->Row{
     let mut nu  =0.0;
-    let shape = system.T.f.dim();
+    let shape = system.temp.f.dim();
     for i in 1..shape.0-1{
-        nu+= system.T.f[[i,shape.1-1]]-system.T.f[[i,shape.1-2]]
+        nu+= system.temp.f[[i,shape.1-1]]-system.temp.f[[i,shape.1-2]]
     }
     nu/=H*(shape.0 as f64)-2.0;
 
@@ -266,31 +265,28 @@ fn main() {
     println!("{:?}",params.R);
 
     let mut system = System{
-        T:Field::new(NX,NY),
+        temp:Field::new(NX,NY),
         phi:Field::new(NX,NY),
         psi:Field::new(NX,NY),
-        C:Array2::<f64>::zeros((NX,NY)),
-        vx:Array2::<f64>::zeros((NX,NY)),
-        vy:Array2::<f64>::zeros((NX,NY)),
+        conc:Array2::<f64>::zeros((NX,NY)),
         params:params,
     };
     //set initial 
     system.phi.f[[NX/2,NY/2]]=1.0;
     for i in 0..NX{
         for j in 0..NY{
-            system.T.f[[i,j]] = 1.0-(j as f64)*H;
-            system.C[[i,j]] = 30.5-(j as f64)*H;
+            system.temp.f[[i,j]] = 1.0-(j as f64)*H;
+            system.conc[[i,j]] = 30.5-(j as f64)*H;
         }
     }
     // log open
     let mut wtr = Writer::from_path("foo.csv").unwrap();
 
     let mut time= 0.0;
-    let time_step = (params.time/DT)as usize;
     let start = Instant::now();
     let mut  time_i=0;
     while time < params.time{
-        for i in 0..1000{
+        for _i in 0..1000{
             system.next_step(DT);
             time+=DT;
         }
@@ -298,7 +294,7 @@ fn main() {
         let res =  log_params(time,&system);
         wtr.serialize(res).unwrap();
         if time_i %10 == 0{
-            write_mat(&system.C,String::from(format!("res/c_{:05}",time)),H);
+            write_mat(&system.conc,String::from(format!("res/c_{:05}",time)),H);
         }
     }
     println!("==============");
@@ -308,6 +304,6 @@ fn main() {
 
     write_mat(&system.phi.f,String::from("phi"),H);
     write_mat(&system.psi.f,String::from("psi"),H);
-    write_mat(&system.T.f,String::from("t"),H);
-    write_mat(&system.C,String::from("c"),H);
+    write_mat(&system.temp.f,String::from("t"),H);
+    write_mat(&system.conc,String::from("c"),H);
 }

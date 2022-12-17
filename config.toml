@@ -2,5 +2,5 @@ R=2100
 B=300
 P=10
 time=10
-paramsC.Le=1.5e-4
-paramsC.l=30
+params_c.Le=1.5e-4
+params_c.l=30
