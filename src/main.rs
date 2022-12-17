@@ -89,7 +89,7 @@ impl System{
         delta+=&(&self.psi.dx*&self.phi.dy);
         delta/=H*H;
         delta+=&(self.params.P*self.params.R*&self.temp.dx/H);
-        delta-=&(self.params.P*self.params.B*dx(&self.conc)/H);
+   //     delta-=&(self.params.P*self.params.B*dx(&self.conc)/H);
         return delta
     }
     fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc,dt:f64)->Array2<f64> {
@@ -198,7 +198,7 @@ impl System{
         self.temp.f+=&(self.step_t()*_dt);
         self.temp.diff();
 
-        self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
+ //       self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
