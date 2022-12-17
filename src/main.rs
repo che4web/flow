@@ -7,19 +7,19 @@ const PEREODIC:bool = true;
 
 
 //pub mod io;
-pub mod finit_diff;
+pub mod finit_diff_na;
 pub mod io;
 //use io::{writeMat};
+extern crate nalgebra as na;
+use na::{SMatrix};
 
-
-use ndarray::{Array2};
-use ndarray_stats::QuantileExt;
+type FMatrix = SMatrix<f64, NX, NY>;
 
 use csv::Writer;
 use serde::{Serialize,Deserialize};
 
 
-use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy,dx_mut,dy_mut,laplace_mut};
+use finit_diff_na::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy,dx_mut,dy_mut,laplace_mut};
 use io::write_mat;
 use std::fs;
 
@@ -45,23 +45,24 @@ struct System{
     temp:Field,
     psi:Field,
     phi:Field,
-    conc:Array2<f64>,
+    //conc:Array2<f64>,
     params:Params,
 }
 struct Field{
-    f:Array2<f64>,
-    dx:Array2<f64>,
-    dy:Array2<f64>,
-    lap:Array2<f64>,
+    f:SMatrix<f64,NX,NY>,
+    dx:SMatrix<f64,NX,NY>,
+    dy:SMatrix<f64,NX,NY>,
+    lap:SMatrix<f64,NX,NY>,
     //buf:Array2<f64>,
 }
 impl Field{
-    fn new(nx:usize,ny:usize)-> Self{
+    fn new()-> Self{
         return Self{
-        f:Array2::<f64>::zeros((nx,ny)),
-        dx:Array2::<f64>::zeros((nx,ny)),
-        dy:Array2::<f64>::zeros((nx,ny)),
-        lap:Array2::<f64>::zeros((nx,ny)),
+        f:FMatrix::zeros(),
+        dx:FMatrix::zeros(),
+        dy:FMatrix::zeros(),
+        lap:FMatrix::zeros(),
+
       //  buf:Array2::<f64>::zeros((nx,ny)),
         }
     }
@@ -73,25 +74,29 @@ impl Field{
     
 }
 impl System{
-    fn step_t(&self)->Array2<f64> {
-        let mut delta = Array2::<f64>::zeros((NX,NY));
+    fn step_t(&self)->FMatrix {
+        let mut delta = FMatrix::zeros();
         delta+=&self.temp.lap;
-        delta-=&(&self.psi.dy*&self.temp.dx);
-        delta+=&(&self.psi.dx*&self.temp.dy);
+        delta.cmpy(-1.0,&self.psi.dy,&self.temp.dx,1.0);
+        delta.cmpy(1.0,&self.psi.dx,&self.temp.dy,1.0);
+        //delta-=&(&self.psi.dy*&self.temp.dx);
+        //delta+=&(&self.psi.dx*&self.temp.dy);
         delta/=H*H;
         return delta
     }
-    fn step_phi(&self)->Array2<f64> {
-        let mut delta = Array2::<f64>::zeros((NX,NY));
+    fn step_phi(&self)->FMatrix{
+        let mut delta = FMatrix::zeros();
         delta+=&self.phi.lap;
-        delta*=self.params.P;
-        delta-=&(&self.psi.dy*&self.phi.dx);
-        delta+=&(&self.psi.dx*&self.phi.dy);
+        delta.cmpy(-1.0,&self.psi.dy,&self.phi.dx,self.params.P);
+        delta.cmpy(1.0,&self.psi.dy,&self.phi.dx,1.0);
+        //delta-=&(&self.psi.dy*&self.phi.dx);
+        //delta+=&(&self.psi.dx*&self.phi.dy);
         delta/=H*H;
         delta+=&(self.params.P*self.params.R*&self.temp.dx/H);
-        delta-=&(self.params.P*self.params.B*dx(&self.conc)/H);
+        //delta-=&(self.params.P*self.params.B*dx(&self.conc)/H);
         return delta
     }
+    /*
     fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc,dt:f64)->Array2<f64> {
 
         let le = params.Le;
@@ -183,7 +188,7 @@ impl System{
         return delta
     }
 
- 
+ */
     fn step_psi(&mut self){
         poisson_relax(&self.phi.f,&mut self.psi.f,H)
     }
@@ -198,51 +203,51 @@ impl System{
         self.temp.f+=&(self.step_t()*_dt);
         self.temp.diff();
 
-        self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
+   //     self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){
         if PEREODIC{
 
             for i in 0..NY{
-                self.psi.f[[0,i]]=self.psi.f[[NX-2,i]];
-                self.psi.f[[NX-1,i]]=self.psi.f[[1,i]];
+                self.psi.f[(0,i)]=self.psi.f[(NX-2,i)];
+                self.psi.f[(NX-1,i)]=self.psi.f[(1,i)];
 
-                self.phi.f[[0,i]]=self.phi.f[[NX-2,i]];
-                self.phi.f[[NX-1,i]]=self.phi.f[[1,i]];
+                self.phi.f[(0,i)]=self.phi.f[(NX-2,i)];
+                self.phi.f[(NX-1,i)]=self.phi.f[(1,i)];
 
-                self.temp.f[[0,i]]=self.temp.f[[NX-2,i]];
-                self.temp.f[[NX-1,i]]=self.temp.f[[1,i]];
+                self.temp.f[(0,i)]=self.temp.f[(NX-2,i)];
+                self.temp.f[(NX-1,i)]=self.temp.f[(1,i)];
 
                 //self.C[[0,i]]=self.C[[NX-2,i]];
                 //self.C[[NX-1,i]]=self.C[[2,i]];
             }
         }else{
             for i in 1..NY-1{
-                self.phi.f[[0,i]]=-self.psi.f[[1,i]]/(H*H)*2.0;
-                self.phi.f[[NX-1,i]]=-self.psi.f[[NX-2,i]]/(H*H)*2.0;
+                self.phi.f[(0,i)]=-self.psi.f[(1,i)]/(H*H)*2.0;
+                self.phi.f[(NX-1,i)]=-self.psi.f[(NX-2,i)]/(H*H)*2.0;
             }
         }
 
         for i in 1..NX-1{
-            self.phi.f[[i,0]]=-self.psi.f[[i,1]]/(H*H)*2.0;
-            self.phi.f[[i,NY-1]]=-self.psi.f[[i,NY-2]]/(H*H)*2.0;
+            self.phi.f[(i,0)]=-self.psi.f[(i,1)]/(H*H)*2.0;
+            self.phi.f[(i,NY-1)]=-self.psi.f[(i,NY-2)]/(H*H)*2.0;
         }
 
     }
 }
 fn log_params(time:f64,system: &System)->Row{
     let mut nu  =0.0;
-    let shape = system.temp.f.dim();
+    let shape = system.temp.f.shape();
     for i in 1..shape.0-1{
-        nu+= system.temp.f[[i,shape.1-1]]-system.temp.f[[i,shape.1-2]]
+        nu+= system.temp.f[(i,shape.1-1)]-system.temp.f[(i,shape.1-2)]
     }
     nu/=H*(shape.0 as f64)-2.0;
 
    return Row{
         t:time,
-        psi_m:*(system.psi.f.max().unwrap()),
-        psi_l:(system.psi.f[[NX/4,NY/2]]),
+        psi_m:(system.psi.f.max()),
+        psi_l:(system.psi.f[(NX/4,NY/2)]),
         nu:nu,
    } 
 }
@@ -265,18 +270,18 @@ fn main() {
     println!("{:?}",params.R);
 
     let mut system = System{
-        temp:Field::new(NX,NY),
-        phi:Field::new(NX,NY),
-        psi:Field::new(NX,NY),
-        conc:Array2::<f64>::zeros((NX,NY)),
+        temp:Field::new(),
+        phi:Field::new(),
+        psi:Field::new(),
+        //conc::Field::new((NX,NY)),
         params:params,
     };
     //set initial 
-    system.phi.f[[NX/2,NY/2]]=1.0;
+    system.phi.f[(NX/2,NY/2)]=1.0;
     for i in 0..NX{
         for j in 0..NY{
-            system.temp.f[[i,j]] = 1.0-(j as f64)*H;
-            system.conc[[i,j]] = 30.5-(j as f64)*H;
+            system.temp.f[(i,j)] = 1.0-(j as f64)*H;
+          //  system.conc[[i,j]] = 30.5-(j as f64)*H;
         }
     }
     // log open
@@ -294,7 +299,7 @@ fn main() {
         let res =  log_params(time,&system);
         wtr.serialize(res).unwrap();
         if time_i %10 == 0{
-            write_mat(&system.conc,String::from(format!("res/c_{:05}",time)),H);
+            write_mat(&system.temp.f,String::from(format!("res/c_{:05}",time)),H);
         }
     }
     println!("==============");
@@ -305,5 +310,5 @@ fn main() {
     write_mat(&system.phi.f,String::from("phi"),H);
     write_mat(&system.psi.f,String::from("psi"),H);
     write_mat(&system.temp.f,String::from("t"),H);
-    write_mat(&system.conc,String::from("c"),H);
+  //  write_mat(&system.conc,String::from("c"),H);
 }
