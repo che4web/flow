@@ -294,7 +294,9 @@ fn main() {
         for _i in 0..1000{
             system.next_step(DT);
             time+=DT;
+
         }
+        println!("{:?}",system.psi.f.max());
         time_i+=1;
         let res =  log_params(time,&system);
         wtr.serialize(res).unwrap();
