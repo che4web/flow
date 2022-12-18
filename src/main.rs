@@ -65,32 +65,77 @@ impl Field{
       //  buf:Array2::<f64>::zeros((nx,ny)),
         }
     }
+    unsafe fn dx_f(&self,index:(usize,usize))->f64{
+        return (*self.f.uget((index.0+1,index.1))-*self.f.uget((index.0-1,index.1)))/2.0
+    }
+
+    unsafe fn dy_f(&self,i:(usize,usize))->f64{
+        return (*self.f.uget((i.0,i.1+1))-*self.f.uget((i.0,i.1-1)))/2.0
+    }
+
+    unsafe fn lap_f(&self,i:(usize,usize))->f64{
+        return *self.f.uget((i.0+1,i.1  ))+
+               *self.f.uget((i.0-1,i.1  ))+
+               *self.f.uget((i.0  ,i.1+1))+
+               *self.f.uget((i.0  ,i.1-1))-
+               *self.f.uget(i)*4.0;
+    }
     fn diff(&mut self){
         dx_mut(&self.f,&mut self.dx);
         dy_mut(&self.f,&mut self.dy);
-        laplace_mut(&self.f,&mut self.lap);
+        //laplace_mut(&self.f,&mut self.lap);
     }
     
 }
 impl System{
-    fn step_t(&self)->Array2<f64> {
-        let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&self.temp.lap;
-        delta-=&(&self.psi.dy*&self.temp.dx);
-        delta+=&(&self.psi.dx*&self.temp.dy);
-        delta/=H*H;
-        return delta
+    fn step_t(&mut self,dt:f64){
+        //let mut delta = Array2::<f64>::zeros((NX,NY));
+
+        unsafe{
+        for i in 1..NX-1{
+            for j in 1..NY-1{
+                let mut tmp = self.temp.lap_f((i,j));
+                tmp-=*self.psi.dy.uget((i,j))*(self.temp.dx_f((i,j)));
+                tmp+=*self.psi.dx.uget((i,j))*(self.temp.dy_f((i,j)));
+                tmp/=H*H;
+                *self.temp.lap.uget_mut((i,j))=tmp*dt;
+            }
+        }
+        }
+        self.temp.f+=&self.temp.lap;
+      //  delta+=&self.temp.lap;
+       // delta-=&(&self.psi.dy*&self.temp.dx);
+        //delta+=&(&self.psi.dx*&self.temp.dy);
+        //delta/=H*H;
     }
-    fn step_phi(&self)->Array2<f64> {
-        let mut delta = Array2::<f64>::zeros((NX,NY));
-        delta+=&self.phi.lap;
-        delta*=self.params.P;
-        delta-=&(&self.psi.dy*&self.phi.dx);
-        delta+=&(&self.psi.dx*&self.phi.dy);
-        delta/=H*H;
-        delta+=&(self.params.P*self.params.R*&self.temp.dx/H);
+    fn step_phi(&mut self,dt:f64) {
+        //let mut delta = Array2::<f64>::zeros((NX,NY));
+        //let shape= delta.dim();
+        unsafe{
+        for i in 1..NX-1{
+            for j in 1..NY-1{
+                let dc = (*self.conc.uget((i+1,j))-*self.conc.uget((i-1,j)))/2.0;
+                let mut tmp = self.phi.lap_f((i,j))*self.params.P;
+                tmp-=*self.psi.dy.uget((i,j))*(self.phi.dx_f((i,j)));
+                tmp+=*self.psi.dx.uget((i,j))*(self.phi.dy_f((i,j)));
+                tmp/=H*H;
+                tmp+=self.params.P*self.params.R*(self.temp.dx_f((i,j)))/H;
+                tmp-=self.params.P*self.params.B*(dc)/H;
+                *self.phi.lap.uget_mut((i,j))=tmp*dt;
+            
+            }
+        }
+        }
+        //delta+=&self.phi.lap;
+        //delta*=self.params.P;
+        //delta-=&(&self.psi.dy*&self.phi.dx);
+        //delta+=&(&self.psi.dx*&self.phi.dy);
+        //delta/=H*H;
+        //delta+=&(self.params.P*self.params.R*&self.temp.dx/H);
+        //delta*=dt;
+        self.phi.f+=&self.phi.lap;
    //     delta-=&(self.params.P*self.params.B*dx(&self.conc)/H);
-        return delta
+       // return delta
     }
     fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc,dt:f64)->Array2<f64> {
 
@@ -189,16 +234,16 @@ impl System{
     }
 
     fn next_step(&mut self,_dt:f64){
-        self.phi.f+= &(self.step_phi()*_dt);
-        self.phi.diff();
+        self.step_phi(_dt);
+        //self.phi.diff();
 
         self.step_psi();
         self.psi.diff();
 
-        self.temp.f+=&(self.step_t()*_dt);
-        self.temp.diff();
+        self.step_t(_dt);
+        //self.temp.diff();
 
- //       self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
+        self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
         self.boundary_condition();
     }
     fn boundary_condition(&mut self){

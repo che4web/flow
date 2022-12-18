@@ -8,14 +8,15 @@ pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,h:f64){
     let nx = shape.0;
     let ny = shape.1;
     let h2=h*h;
+    unsafe{
     for _k in  0..1000{
         //let lap = laplace(&psi_new);
         let mut nev =0.0;
         for i in 1..shape.0-1{
             for j in 1..shape.1-1{
-                let tmp =-OMEGA*psi[[i,j]]+ OMEGA/4.0*(psi[[i+1,j]] +psi[[i-1,j]]+psi[[i,j+1]] +psi[[i,j-1]]+h2*phi[[i,j]]);
+                let tmp =-OMEGA*(*psi.uget((i,j)))+ OMEGA/4.0*(*psi.uget((i+1,j)) +*psi.uget((i-1,j))+*psi.uget((i,j+1)) +*psi.uget((i,j-1))+*phi.uget((i,j))*h2);
 
-                psi[[i,j]] +=tmp;
+                *psi.uget_mut((i,j)) +=tmp;
                 if nev<tmp.abs(){
                     nev =tmp.abs();
                 }
@@ -33,6 +34,7 @@ pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,h:f64){
             break;
         }
 
+    }
     }
 }
 
@@ -153,29 +155,38 @@ pub fn dy(arr: &Array2<f64>)->Array2<f64> {
 
 pub fn dy_mut(arr: &Array2<f64>,delta:&mut Array2<f64> ){
     let shape = arr.dim();
+    unsafe {
     for j in 1..shape.0-1{
         for i in 1..shape.1-1{
-           delta[[j,i]]=( arr[[j,i+1]]-arr[[j,i-1]])/(2.0);
+           let tmp = ( *arr.uget((j,i+1))-*arr.uget((j,i-1)))/(2.0);
+           *delta.uget_mut((j,i)) = tmp;
        }
+   }
    }
 }
 pub fn dx_mut(arr: &Array2<f64>,delta:&mut Array2<f64> ){
     let shape = arr.dim();
+    unsafe {
     for j in 1..shape.0-1{
         for i in 1..shape.1-1{
-           delta[[j,i]]=( arr[[j+1,i]]-arr[[j-1,i]])/(2.0);
+           let tmp = ( *arr.uget((j+1,i))-*arr.uget((j-1,i)))/(2.0);
+           *delta.uget_mut((j,i)) = tmp;
        }
+   }
    }
 }
 pub fn laplace_mut(v: &Array2<f64>,delta:&mut Array2<f64>) {
     let shape = v.dim();
-    for j in 1..shape.0-1{
-        for i in 1..shape.1-1{
-           delta[[j,i]]= v[[j+1,i]]+v[[j-1,i]]+v[[j,i+1]]+v[[j,i-1]]-4.0*v[[j,i]];
-       }
+    unsafe {
+        for j in 1..shape.0-1{
+            for i in 1..shape.1-1{
+                let tmp = *v.uget((j+1,i))+*v.uget((j-1,i))+*v.uget((j,i+1))+*v.uget((j,i-1))-*v.uget((j,i))*4.0;
+                *delta.uget_mut((j,i)) = tmp;
+            }
+        }
     }
 }
- 
+
 
 
 
