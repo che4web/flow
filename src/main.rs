@@ -1,9 +1,11 @@
-const NY:usize=33;
+const NY:usize=65;
 const NX:usize=(NY-1)*2+1;
 const L:f64=2.0;
 const H:f64=L/((NX-1) as f64);
 const DT:f64=H*H/5.0/10.;
 const PEREODIC:bool = true;
+extern crate queues;
+use queues::*;
 
 
 //pub mod io;
@@ -64,12 +66,15 @@ struct System{
     temp:Temperatura,
     psi:Psi,
     phi:Phi,
-    conc:Array2<f64>,
+    conc:Concentration,
     params:Params,
 }
 struct Concentration{
     f:Array2<f64>,
     delta:Array2<f64>,
+    qew:Array2<f64>,
+    qsn:Array2<f64>,
+    params:ParamsConc,
 }
 
 struct Temperatura{
@@ -84,7 +89,6 @@ struct Phi{
 
 struct Psi{
     f:Array2<f64>,
-    delta:Array2<f64>,
 }
 
 
@@ -115,26 +119,100 @@ impl Field for Concentration{
 
 
 impl Concentration{
-    fn new(nx:usize,ny:usize)-> Self{
+    fn new(nx:usize,ny:usize,params:ParamsConc)-> Self{
         return Self{
         f:Array2::<f64>::zeros((nx,ny)),
         delta:Array2::<f64>::zeros((nx,ny)),
+        qsn:Array2::<f64>::zeros((nx,ny)),
+        qew:Array2::<f64>::zeros((nx,ny)),
+        params:params
         }
     }
-    fn step(&mut self,psi:&Psi,dt:f64){
-        unsafe{
-        for i in 1..NX-1{
-            for j in 1..NY-1{
-                let mut tmp = self.lap((i,j));
-                tmp-=psi.dy((i,j))*(self.dx((i,j)));
-                tmp+=psi.dx((i,j))*(self.dy((i,j)));
-                tmp/=H*H;
-                *self.delta.uget_mut((i,j))=tmp*dt;
+    fn step(&mut self,psi:&Array2<f64>,t:&Array2<f64>,dt:f64) {
+
+        let le = self.params.Le;
+        let l = self.params.l;
+
+        let a = vec![
+            0.25/H*0.5,
+            -0.25/H*0.5,
+            le/l*0.5,
+            -le/H,
+            -le/H,
+            dt/H,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+        ];
+        for i in 1..NX{
+            for k in 1..NY-1{
+                let c_local=self.f[[i,k]]+self.f[[i-1,k]];
+                let  mut tmp=a[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
+                tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
+                self.qew[[i,k]] = tmp;
             }
         }
+        for i in 1..NX-1{
+            for k in 1..NY{
+                let c_local=self.f[[i,k]]+self.f[[i,k-1]];
+                let  mut tmp=a[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i-1,k-1]])*c_local;
+                tmp+=a[4]*(self.f[[i,k]]-self.f[[i,k-1]]);
+                self.qsn[[i,k]] = tmp;
+            }
         }
-        self.f+=&self.delta;
+
+        for i in 1..NX{
+            let mut  k=0;
+            let mut c_local=self.f[[i,k]]+self.f[[i-1,k]];
+            let  mut tmp=a[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
+            tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
+            self.qew[[i,k]] = tmp;
+
+            k=NY-1;
+            c_local=self.f[[i,k]]+self.f[[i-1,k]];
+            tmp=a[0]*(-psi[[i,k-1]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
+            self.qew[[i,k]] = tmp;
+
+        }
+        for k in 1..NY{
+            let mut  i=0;
+            let mut c_local=self.f[[i,k]]+self.f[[i,k-1]];
+            let  mut tmp=a[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
+            tmp+=a[3]*(self.f[[i,k]]-self.f[[i,k-1]]);
+            self.qsn[[i,k]] = tmp;
+
+            i=NX-1;
+            c_local=self.f[[i,k]]+self.f[[i,k-1]];
+            tmp=a[1]*(-psi[[i-1,k]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp+=a[3]*(self.f[[i,k]]-self.f[[i,k-1]]);
+            self.qsn[[i,k]] = tmp;
+        }
+        for i in 1..NX-1{
+            for k in 1..NY-1{
+                let q = self.qew[[i,k]]-self.qew[[i+1,k]]+self.qsn[[i,k]]-self.qsn[[i,k+1]];
+                self.f[[i,k]]=self.f[[i,k]]+a[5]*q;
+            }
+        }
+        for i in 1..NX-1{
+            let k=0;
+            self.f[[i,k]]=self.f[[i,k]]+a[5]*((self.qew[[i,k]]-self.qew[[i+1,k]])-2.0*self.qsn[[i,k+1]]);
+
+            let k=NY-1;
+            self.f[[i,k]]=self.f[[i,k]]+a[5]*((self.qew[[i,k]]-self.qew[[i+1,k]])+2.0*self.qsn[[i,k]]);
+        }
+        for k in 0..NY{
+            self.f[[0,k]]=self.f[[NX-2,k]];
+
+            self.f[[NX-1,k]]=self.f[[1,k]];
+            //delta[[0,k]]=c[[NX-2,k]];
+            //delta[[NX-1,k]]=c[[1,k]];
+        }
+
     }
+
 }
 
 
@@ -169,7 +247,7 @@ impl Phi{
         params:params,
         }
     }
-    fn step(&mut self,psi:&Psi,t:&Temperatura,dt:f64) {
+    fn step(&mut self,psi:&Psi,t:&Temperatura,conc:&Concentration,dt:f64) {
         //let mut delta = Array2::<f64>::zeros((NX,NY));
         //let shape= delta.dim();
         unsafe{
@@ -180,7 +258,7 @@ impl Phi{
                 tmp+=psi.dx((i,j))*(self.dy((i,j)));
                 tmp/=H*H;
                 tmp+=self.params.P*self.params.R*(t.dx((i,j)))/H;
-                //tmp-=self.params.P*self.params.B*(conc.dx((i,j)))/H;
+                tmp-=self.params.P*self.params.B*(conc.dx((i,j)))/H;
                 *self.delta.uget_mut((i,j))=tmp*dt;
             
             }
@@ -193,118 +271,26 @@ impl Psi{
     fn new(nx:usize,ny:usize)-> Self{
         return Self{
         f:Array2::<f64>::zeros((nx,ny)),
-        delta:Array2::<f64>::zeros((nx,ny)),
         }
     }
     fn step(&mut self,phi:&Phi,) {
-        poisson_relax(&phi.f,&mut self.f,H)
+        poisson_relax(&phi.f,&mut self.f,H);
     }
 }
 
 
 
 
+
+
 impl System{
-    fn step_c(&self,psi:&Array2<f64>,t:&Array2<f64>,c:&Array2<f64>,params:&ParamsConc,dt:f64)->Array2<f64> {
 
-        let le = params.Le;
-        let l = params.l;
-
-        let mut delta = Array2::<f64>::zeros((NX,NY));
-        let mut qew = Array2::<f64>::zeros((NX,NY));
-        let mut qsn = Array2::<f64>::zeros((NX,NY));
-        
-        let a = vec![
-            0.25/H*0.5,
-            -0.25/H*0.5,
-            le/l*0.5,
-            -le/H,
-            -le/H,
-            dt/H,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0
-        ];
-        for i in 1..NX{
-            for k in 1..NY-1{
-                let c_local=c[[i,k]]+c[[i-1,k]];
-                let  mut tmp=a[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
-                tmp+=a[3]*(c[[i,k]]-c[[i-1,k]]);
-                qew[[i,k]] = tmp;
-            }
-        }
-        for i in 1..NX-1{
-            for k in 1..NY{
-                let c_local=c[[i,k]]+c[[i,k-1]];
-                let  mut tmp=a[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i-1,k-1]])*c_local;
-                tmp+=a[4]*(c[[i,k]]-c[[i,k-1]]);
-                qsn[[i,k]] = tmp;
-            }
-        }
-
-        for i in 1..NX{
-            let mut  k=0;
-            let mut c_local=c[[i,k]]+c[[i-1,k]];
-            let  mut tmp=a[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
-            tmp+=a[3]*(c[[i,k]]-c[[i-1,k]]);
-            qew[[i,k]] = tmp;
-
-            k=NY-1;
-            c_local=c[[i,k]]+c[[i-1,k]];
-            tmp=a[0]*(-psi[[i,k-1]]-psi[[i-1,k-1]])*c_local*2.0;
-            tmp+=a[3]*(c[[i,k]]-c[[i-1,k]]);
-            qew[[i,k]] = tmp;
-
-        }
-        for k in 1..NY{
-            let mut  i=0;
-            let mut c_local=c[[i,k]]+c[[i,k-1]];
-            let  mut tmp=a[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
-            tmp+=a[3]*(c[[i,k]]-c[[i,k-1]]);
-            qsn[[i,k]] = tmp;
-
-            i=NX-1;
-            c_local=c[[i,k]]+c[[i,k-1]];
-            tmp=a[1]*(-psi[[i-1,k]]-psi[[i-1,k-1]])*c_local*2.0;
-            tmp+=a[3]*(c[[i,k]]-c[[i,k-1]]);
-            qsn[[i,k]] = tmp;
-        }
-        for i in 1..NX-1{
-            for k in 1..NY-1{
-                let q = qew[[i,k]]-qew[[i+1,k]]+qsn[[i,k]]-qsn[[i,k+1]];
-                delta[[i,k]]=c[[i,k]]+a[5]*q;
-            }
-        }
-        for i in 1..NX-1{
-            let k=0;
-            delta[[i,k]]=c[[i,k]]+a[5]*((qew[[i,k]]-qew[[i+1,k]])-2.0*qsn[[i,k+1]]);
-
-            let k=NY-1;
-            delta[[i,k]]=c[[i,k]]+a[5]*((qew[[i,k]]-qew[[i+1,k]])+2.0*qsn[[i,k]]);
-        }
-        for k in 0..NY{
-            delta[[0,k]]=delta[[NX-2,k]];
-            delta[[NX-1,k]]=delta[[1,k]];
-            //delta[[0,k]]=c[[NX-2,k]];
-            //delta[[NX-1,k]]=c[[1,k]];
-        }
-
-
-
-        return delta
-    }
-
- 
-    fn step_psi(&mut self){
-        poisson_relax(&self.phi.f,&mut self.psi.f,H)
-    }
 
     fn next_step(&mut self,_dt:f64){
-        self.phi.step(&self.psi,&self.temp,_dt);
+        self.phi.step(&self.psi,&self.temp,&self.conc,_dt);
         self.psi.step(&self.phi);
         self.temp.step(&self.psi,_dt);
+        self.conc.step(&self.psi.f,&self.temp.f,_dt);
         //self.temp.diff();
 
         //self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
@@ -377,7 +363,7 @@ fn main() {
         temp:Temperatura::new(NX,NY),
         phi:Phi::new(NX,NY,params),
         psi:Psi::new(NX,NY),
-        conc:Array2::<f64>::zeros((NX,NY)),
+        conc:Concentration::new(NX,NY,params.params_c),
         params:params,
     };
     //set initial 
@@ -385,9 +371,10 @@ fn main() {
     for i in 0..NX{
         for j in 0..NY{
             system.temp.f[[i,j]] = 1.0-(j as f64)*H;
-            system.conc[[i,j]] = 30.5-(j as f64)*H;
+            system.conc.f[[i,j]] = 30.5-(j as f64)*H;
         }
     }
+    system.phi.f[[NX/2,NY/2]] = 1.0;
     // log open
     let mut wtr = Writer::from_path("foo.csv").unwrap();
 
@@ -403,8 +390,9 @@ fn main() {
         let res =  log_params(time,&system);
         wtr.serialize(res).unwrap();
         if time_i %10 == 0{
-            println!("tiem {:?}",time);
-            write_mat(&system.conc,String::from(format!("res/c_{:05}",time)),H);
+            let duration = start.elapsed();
+            println!("{:0.2},{:?}",time/params.time,duration) ;
+            write_mat(&system.conc.f,String::from(format!("res/c_{:05}",time)),H);
         }
     }
     println!("==============");
@@ -415,5 +403,5 @@ fn main() {
     write_mat(&system.phi.f,String::from("phi"),H);
     write_mat(&system.psi.f,String::from("psi"),H);
     write_mat(&system.temp.f,String::from("t"),H);
-    write_mat(&system.conc,String::from("c"),H);
+    write_mat(&system.conc.f,String::from("c"),H);
 }
