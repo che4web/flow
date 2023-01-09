@@ -1,6 +1,7 @@
-R=2100
-B=300
-P=10
-time=100
-params_c.Le=1.5e-4
+rel=2100
+bm=300
+pr=10
+time=20
+
+params_c.le=1.5e-4
 params_c.l=30

@@ -4,15 +4,14 @@ const L:f64=2.0;
 const H:f64=L/((NX-1) as f64);
 const DT:f64=H*H/5.0/10.;
 const PEREODIC:bool = true;
-extern crate queues;
-use queues::*;
 
 
 //pub mod io;
 pub mod finit_diff;
 pub mod io;
+pub mod field;
 //use io::{writeMat};
-
+use field::{Field};
 
 use ndarray::{Array2};
 use ndarray_stats::QuantileExt;
@@ -21,59 +20,40 @@ use csv::Writer;
 use serde::{Serialize,Deserialize};
 
 
-use finit_diff::{dx,dy,laplace,poisson_relax,dx_f,dy_f,dx_b,dy_b,mean_cx,mean_cy,dx_mut,dy_mut,laplace_mut};
+use finit_diff::{poisson_relax};
 use io::write_mat;
 use std::fs;
 
-use std::time::{Duration, Instant};
+use std::time::{Instant};
 use toml;
 
 #[derive(Serialize,Deserialize,Copy,Clone)]
 struct ParamsConc{
-    Le:f64,
+    le:f64,
     l:f64,
 }
 
 #[derive(Serialize,Deserialize,Copy,Clone)]
 struct Params{
-    R:f64,
-    B:f64,
-    P:f64,
+    rel:f64,
+    bm:f64,
+    pr:f64,
     time:f64,
     params_c:ParamsConc,
 
 }
-trait Field{
-    fn get_f(&self)-> &Array2<f64>;
-    unsafe fn dx(&self,index:(usize,usize))->f64{
-        return (*self.get_f().uget((index.0+1,index.1))-*self.get_f().uget((index.0-1,index.1)))/2.0
-    }
-
-    unsafe fn dy(&self,i:(usize,usize))->f64{
-        return (*self.get_f().uget((i.0,i.1+1))-*self.get_f().uget((i.0,i.1-1)))/2.0
-    }
-
-    unsafe fn lap(&self,i:(usize,usize))->f64{
-        return *self.get_f().uget((i.0+1,i.1  ))+
-               *self.get_f().uget((i.0-1,i.1  ))+
-               *self.get_f().uget((i.0  ,i.1+1))+
-               *self.get_f().uget((i.0  ,i.1-1))-
-               *self.get_f().uget(i)*4.0;
-    }
-}
-
 struct System{
     temp:Temperatura,
     psi:Psi,
     phi:Phi,
     conc:Concentration,
-    params:Params,
 }
 struct Concentration{
     f:Array2<f64>,
-    delta:Array2<f64>,
     qew:Array2<f64>,
     qsn:Array2<f64>,
+    vx:Array2<f64>,
+    vy:Array2<f64>,
     params:ParamsConc,
 }
 
@@ -122,15 +102,16 @@ impl Concentration{
     fn new(nx:usize,ny:usize,params:ParamsConc)-> Self{
         return Self{
         f:Array2::<f64>::zeros((nx,ny)),
-        delta:Array2::<f64>::zeros((nx,ny)),
-        qsn:Array2::<f64>::zeros((nx,ny)),
         qew:Array2::<f64>::zeros((nx,ny)),
+        qsn:Array2::<f64>::zeros((nx,ny)),
+        vx:Array2::<f64>::zeros((nx,ny)),
+        vy:Array2::<f64>::zeros((nx,ny)),
         params:params
         }
     }
-    fn step(&mut self,psi:&Array2<f64>,t:&Array2<f64>,dt:f64) {
+    fn step(&mut self,psi:&Psi,_t:&Array2<f64>,dt:f64) {
 
-        let le = self.params.Le;
+        let le = self.params.le;
         let l = self.params.l;
 
         let a = vec![
@@ -146,33 +127,62 @@ impl Concentration{
             0.0,
             0.0
         ];
+        unsafe{
+
+        for i in 1..NX{
+            for k in 1..NY-1{
+                self.vx[[i,k]] = psi.dy((i,k))+psi.dy((i-1,k));
+            }
+        }
+
+        for i in 1..NX-1{
+            for k in 1..NY{
+                self.vy[[i,k]] = psi.dx((i,k))+psi.dx((i,k-1));
+            }
+        }
+
+        for i in 1..NX{
+            let mut k =0;
+            self.vx[[i,k]]=psi.f[[i,k+1]]+psi.f[[i-1,k+1]];
+            k = NY-1;
+            self.vx[[i,k]]=-psi.f[[i,k-1]]-psi.f[[i-1,k-1]];
+        }
+
+        for k in 1..NY{
+            {
+            let i=0;
+            self.vy[[i,k]]=(psi.f[[i+1,k]]+psi.f[[i+1,k-1]]);
+            }
+            let i=NX-1;
+            self.vy[[i,k]]=(-psi.f[[i-1,k]]-psi.f[[i-1,k-1]]);
+        }
         for i in 1..NX{
             for k in 1..NY-1{
                 let c_local=self.f[[i,k]]+self.f[[i-1,k]];
-                let  mut tmp=a[0]*(psi[[i,k+1]]-psi[[i,k-1]]+psi[[i-1,k+1]]-psi[[i-1,k-1]])*c_local;
-                tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
+                let  mut tmp=a[0]*(self.vx[[i,k]])*2.0*c_local;
+                tmp+=a[3]*self.dx_b((i,k));
                 self.qew[[i,k]] = tmp;
             }
         }
         for i in 1..NX-1{
             for k in 1..NY{
                 let c_local=self.f[[i,k]]+self.f[[i,k-1]];
-                let  mut tmp=a[1]*(psi[[i+1,k]]-psi[[i-1,k]]+psi[[i+1,k-1]]-psi[[i-1,k-1]])*c_local;
-                tmp+=a[4]*(self.f[[i,k]]-self.f[[i,k-1]]);
+                let  mut tmp=a[1]*(self.vy[[i,k]])*2.0*c_local;
+                tmp+=a[4]*(self.dx_b((i,k)));
                 self.qsn[[i,k]] = tmp;
             }
         }
-
+        }
         for i in 1..NX{
             let mut  k=0;
             let mut c_local=self.f[[i,k]]+self.f[[i-1,k]];
-            let  mut tmp=a[0]*(psi[[i,k+1]]+psi[[i-1,k+1]])*c_local*2.0;
+            let  mut tmp=a[0]*(self.vx[[i,k]])*c_local*2.0;
             tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
             self.qew[[i,k]] = tmp;
 
             k=NY-1;
             c_local=self.f[[i,k]]+self.f[[i-1,k]];
-            tmp=a[0]*(-psi[[i,k-1]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp=a[0]*(self.vx[[i,k]])*c_local*2.0;
             tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
             self.qew[[i,k]] = tmp;
 
@@ -180,13 +190,13 @@ impl Concentration{
         for k in 1..NY{
             let mut  i=0;
             let mut c_local=self.f[[i,k]]+self.f[[i,k-1]];
-            let  mut tmp=a[1]*(psi[[i+1,k]]+psi[[i+1,k-1]])*c_local*2.0;
+            let  mut tmp=a[1]*(self.vy[[i,k]])*c_local*2.0;
             tmp+=a[3]*(self.f[[i,k]]-self.f[[i,k-1]]);
             self.qsn[[i,k]] = tmp;
 
             i=NX-1;
             c_local=self.f[[i,k]]+self.f[[i,k-1]];
-            tmp=a[1]*(-psi[[i-1,k]]-psi[[i-1,k-1]])*c_local*2.0;
+            tmp=a[1]*(self.vy[[i,k]])*c_local*2.0;
             tmp+=a[3]*(self.f[[i,k]]-self.f[[i,k-1]]);
             self.qsn[[i,k]] = tmp;
         }
@@ -207,8 +217,6 @@ impl Concentration{
             self.f[[0,k]]=self.f[[NX-2,k]];
 
             self.f[[NX-1,k]]=self.f[[1,k]];
-            //delta[[0,k]]=c[[NX-2,k]];
-            //delta[[NX-1,k]]=c[[1,k]];
         }
 
     }
@@ -253,12 +261,12 @@ impl Phi{
         unsafe{
         for i in 1..NX-1{
             for j in 1..NY-1{
-                let mut tmp = self.lap((i,j))*self.params.P;
+                let mut tmp = self.lap((i,j))*self.params.pr;
                 tmp-=psi.dy((i,j))*(self.dx((i,j)));
                 tmp+=psi.dx((i,j))*(self.dy((i,j)));
                 tmp/=H*H;
-                tmp+=self.params.P*self.params.R*(t.dx((i,j)))/H;
-                tmp-=self.params.P*self.params.B*(conc.dx((i,j)))/H;
+                tmp+=self.params.pr*self.params.rel*(t.dx((i,j)))/H;
+                tmp-=self.params.pr*self.params.bm*(conc.dx((i,j)))/H;
                 *self.delta.uget_mut((i,j))=tmp*dt;
             
             }
@@ -290,7 +298,7 @@ impl System{
         self.phi.step(&self.psi,&self.temp,&self.conc,_dt);
         self.psi.step(&self.phi);
         self.temp.step(&self.psi,_dt);
-        self.conc.step(&self.psi.f,&self.temp.f,_dt);
+        self.conc.step(&self.psi,&self.temp.f,_dt);
         //self.temp.diff();
 
         //self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
@@ -357,14 +365,13 @@ fn main() {
     //let mut dela =Array2::<f64>::zeros((NX,NY));
     let contents = fs::read_to_string("config.toml").unwrap() ;
     let params:Params = toml::from_str(&contents).unwrap();
-    println!("{:?}",params.R);
+    println!("{:?}",params.rel);
 
     let mut system = System{
         temp:Temperatura::new(NX,NY),
         phi:Phi::new(NX,NY,params),
         psi:Psi::new(NX,NY),
         conc:Concentration::new(NX,NY,params.params_c),
-        params:params,
     };
     //set initial 
     system.phi.f[[NX/2,NY/2]]=1.0;
