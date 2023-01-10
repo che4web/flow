@@ -1,7 +1,7 @@
 rel=2100
 bm=300
 pr=10
-time=20
+time=200
 
 params_c.le=1.5e-4
 params_c.l=30

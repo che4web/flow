@@ -6,7 +6,7 @@ pub trait Field{
     }
 
     unsafe fn my_b(&self,index:(usize,usize))->f64{
-        return (*self.get_f().uget((index.0,index.1))+*self.get_f().uget((index.0,index.1+1)))/2.0
+        return (*self.get_f().uget((index.0,index.1))+*self.get_f().uget((index.0,index.1-1)))/2.0
     }
 
     unsafe fn dx_f(&self,index:(usize,usize))->f64{
@@ -43,3 +43,10 @@ pub trait Field{
 }
 
 
+pub unsafe fn dx_b(f:&Array2<f64>,index:(usize,usize))->f64{
+    return *f.uget((index.0,index.1))-*f.uget((index.0-1,index.1))
+}
+
+pub unsafe fn dy_b(f:&Array2<f64>,index:(usize,usize))->f64{
+    return *f.uget((index.0,index.1))-*f.uget((index.0,index.1-1))
+}

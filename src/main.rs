@@ -5,289 +5,32 @@ const H:f64=L/((NX-1) as f64);
 const DT:f64=H*H/5.0/10.;
 const PEREODIC:bool = true;
 
-
+use ndarray_stats::QuantileExt;
 //pub mod io;
 pub mod finit_diff;
 pub mod io;
 pub mod field;
 //use io::{writeMat};
-use field::{Field};
-
-use ndarray::{Array2};
-use ndarray_stats::QuantileExt;
-
+pub mod equtions;
+use equtions::{Concentration,Temperatura,Psi,Phi,Params,ParamsConc};
 use csv::Writer;
 use serde::{Serialize,Deserialize};
 
 
-use finit_diff::{poisson_relax};
+
 use io::write_mat;
 use std::fs;
 
 use std::time::{Instant};
 use toml;
 
-#[derive(Serialize,Deserialize,Copy,Clone)]
-struct ParamsConc{
-    le:f64,
-    l:f64,
-}
 
-#[derive(Serialize,Deserialize,Copy,Clone)]
-struct Params{
-    rel:f64,
-    bm:f64,
-    pr:f64,
-    time:f64,
-    params_c:ParamsConc,
-
-}
 struct System{
     temp:Temperatura,
     psi:Psi,
     phi:Phi,
     conc:Concentration,
 }
-struct Concentration{
-    f:Array2<f64>,
-    qew:Array2<f64>,
-    qsn:Array2<f64>,
-    vx:Array2<f64>,
-    vy:Array2<f64>,
-    params:ParamsConc,
-}
-
-struct Temperatura{
-    f:Array2<f64>,
-    delta:Array2<f64>,
-}
-struct Phi{
-    f:Array2<f64>,
-    delta:Array2<f64>,
-    params:Params,
-}
-
-struct Psi{
-    f:Array2<f64>,
-}
-
-
-
-impl Field for Temperatura{
-    fn get_f(&self)-> &Array2<f64>{
-        return &self.f
-    }
-}
-impl Field for Phi{
-    fn get_f(&self)-> &Array2<f64>{
-        return &self.f
-    }
-}
-impl Field for Psi{
-    fn get_f(&self)-> &Array2<f64>{
-        return &self.f
-    }
-}
-impl Field for Concentration{
-    fn get_f(&self)-> &Array2<f64>{
-        return &self.f
-    }
-}
-
-
-
-
-
-impl Concentration{
-    fn new(nx:usize,ny:usize,params:ParamsConc)-> Self{
-        return Self{
-        f:Array2::<f64>::zeros((nx,ny)),
-        qew:Array2::<f64>::zeros((nx,ny)),
-        qsn:Array2::<f64>::zeros((nx,ny)),
-        vx:Array2::<f64>::zeros((nx,ny)),
-        vy:Array2::<f64>::zeros((nx,ny)),
-        params:params
-        }
-    }
-    fn step(&mut self,psi:&Psi,_t:&Array2<f64>,dt:f64) {
-
-        let le = self.params.le;
-        let l = self.params.l;
-
-        let a = vec![
-            0.25/H*0.5,
-            -0.25/H*0.5,
-            le/l*0.5,
-            -le/H,
-            -le/H,
-            dt/H,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0
-        ];
-        unsafe{
-
-        for i in 1..NX{
-            for k in 1..NY-1{
-                self.vx[[i,k]] = psi.dy((i,k))+psi.dy((i-1,k));
-            }
-        }
-
-        for i in 1..NX-1{
-            for k in 1..NY{
-                self.vy[[i,k]] = psi.dx((i,k))+psi.dx((i,k-1));
-            }
-        }
-
-        for i in 1..NX{
-            let mut k =0;
-            self.vx[[i,k]]=psi.f[[i,k+1]]+psi.f[[i-1,k+1]];
-            k = NY-1;
-            self.vx[[i,k]]=-psi.f[[i,k-1]]-psi.f[[i-1,k-1]];
-        }
-
-        for k in 1..NY{
-            {
-            let i=0;
-            self.vy[[i,k]]=(psi.f[[i+1,k]]+psi.f[[i+1,k-1]]);
-            }
-            let i=NX-1;
-            self.vy[[i,k]]=(-psi.f[[i-1,k]]-psi.f[[i-1,k-1]]);
-        }
-        for i in 1..NX{
-            for k in 1..NY-1{
-                let c_local=self.f[[i,k]]+self.f[[i-1,k]];
-                let  mut tmp=a[0]*(self.vx[[i,k]])*2.0*c_local;
-                tmp+=a[3]*self.dx_b((i,k));
-                self.qew[[i,k]] = tmp;
-            }
-        }
-        for i in 1..NX-1{
-            for k in 1..NY{
-                let c_local=self.f[[i,k]]+self.f[[i,k-1]];
-                let  mut tmp=a[1]*(self.vy[[i,k]])*2.0*c_local;
-                tmp+=a[4]*(self.dx_b((i,k)));
-                self.qsn[[i,k]] = tmp;
-            }
-        }
-        }
-        for i in 1..NX{
-            let mut  k=0;
-            let mut c_local=self.f[[i,k]]+self.f[[i-1,k]];
-            let  mut tmp=a[0]*(self.vx[[i,k]])*c_local*2.0;
-            tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
-            self.qew[[i,k]] = tmp;
-
-            k=NY-1;
-            c_local=self.f[[i,k]]+self.f[[i-1,k]];
-            tmp=a[0]*(self.vx[[i,k]])*c_local*2.0;
-            tmp+=a[3]*(self.f[[i,k]]-self.f[[i-1,k]]);
-            self.qew[[i,k]] = tmp;
-
-        }
-        for k in 1..NY{
-            let mut  i=0;
-            let mut c_local=self.f[[i,k]]+self.f[[i,k-1]];
-            let  mut tmp=a[1]*(self.vy[[i,k]])*c_local*2.0;
-            tmp+=a[3]*(self.f[[i,k]]-self.f[[i,k-1]]);
-            self.qsn[[i,k]] = tmp;
-
-            i=NX-1;
-            c_local=self.f[[i,k]]+self.f[[i,k-1]];
-            tmp=a[1]*(self.vy[[i,k]])*c_local*2.0;
-            tmp+=a[3]*(self.f[[i,k]]-self.f[[i,k-1]]);
-            self.qsn[[i,k]] = tmp;
-        }
-        for i in 1..NX-1{
-            for k in 1..NY-1{
-                let q = self.qew[[i,k]]-self.qew[[i+1,k]]+self.qsn[[i,k]]-self.qsn[[i,k+1]];
-                self.f[[i,k]]=self.f[[i,k]]+a[5]*q;
-            }
-        }
-        for i in 1..NX-1{
-            let k=0;
-            self.f[[i,k]]=self.f[[i,k]]+a[5]*((self.qew[[i,k]]-self.qew[[i+1,k]])-2.0*self.qsn[[i,k+1]]);
-
-            let k=NY-1;
-            self.f[[i,k]]=self.f[[i,k]]+a[5]*((self.qew[[i,k]]-self.qew[[i+1,k]])+2.0*self.qsn[[i,k]]);
-        }
-        for k in 0..NY{
-            self.f[[0,k]]=self.f[[NX-2,k]];
-
-            self.f[[NX-1,k]]=self.f[[1,k]];
-        }
-
-    }
-
-}
-
-
-
-impl Temperatura{
-    fn new(nx:usize,ny:usize)-> Self{
-        return Self{
-        f:Array2::<f64>::zeros((nx,ny)),
-        delta:Array2::<f64>::zeros((nx,ny)),
-        }
-    }
-    fn step(&mut self,psi:&Psi,dt:f64){
-        unsafe{
-        for i in 1..NX-1{
-            for j in 1..NY-1{
-                let mut tmp = self.lap((i,j));
-                tmp-=psi.dy((i,j))*(self.dx((i,j)));
-                tmp+=psi.dx((i,j))*(self.dy((i,j)));
-                tmp/=H*H;
-                *self.delta.uget_mut((i,j))=tmp*dt;
-            }
-        }
-        }
-        self.f+=&self.delta;
-    }
-}
-impl Phi{
-    fn new(nx:usize,ny:usize,params:Params)-> Self{
-        return Self{
-        f:Array2::<f64>::zeros((nx,ny)),
-        delta:Array2::<f64>::zeros((nx,ny)),
-        params:params,
-        }
-    }
-    fn step(&mut self,psi:&Psi,t:&Temperatura,conc:&Concentration,dt:f64) {
-        //let mut delta = Array2::<f64>::zeros((NX,NY));
-        //let shape= delta.dim();
-        unsafe{
-        for i in 1..NX-1{
-            for j in 1..NY-1{
-                let mut tmp = self.lap((i,j))*self.params.pr;
-                tmp-=psi.dy((i,j))*(self.dx((i,j)));
-                tmp+=psi.dx((i,j))*(self.dy((i,j)));
-                tmp/=H*H;
-                tmp+=self.params.pr*self.params.rel*(t.dx((i,j)))/H;
-                tmp-=self.params.pr*self.params.bm*(conc.dx((i,j)))/H;
-                *self.delta.uget_mut((i,j))=tmp*dt;
-            
-            }
-        }
-        }
-        self.f+=&self.delta;
-    }
-}
-impl Psi{
-    fn new(nx:usize,ny:usize)-> Self{
-        return Self{
-        f:Array2::<f64>::zeros((nx,ny)),
-        }
-    }
-    fn step(&mut self,phi:&Phi,) {
-        poisson_relax(&phi.f,&mut self.f,H);
-    }
-}
-
-
-
 
 
 
