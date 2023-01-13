@@ -1,21 +1,35 @@
-use crate::field::{dx_b, dy_b, Field};
+use crate::field::{Field};
 use crate::finit_diff::poisson_relax;
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Copy, Clone)]
+use crate::PEREODIC;
+#[derive(Serialize, Deserialize, Copy, Clone,Debug)]
 pub struct ParamsConc {
     pub le: f64,
     pub l: f64,
+    #[serde(default ="zero")]
+    pub sor:f64,
+    #[serde(default ="zero")]
+    pub psi:f64
+}
+fn zero() ->f64{
+    0.0
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Serialize, Deserialize, Copy, Clone,Debug)]
 pub struct Params {
     pub rel: f64,
     pub bm: f64,
+    pub bm2: f64,
+    #[serde(default ="zero")]
+    pub rel_c1:f64,
+    #[serde(default ="zero")]
+    pub rel_c2:f64,
+
     pub pr: f64,
     pub time: f64,
     pub params_c: ParamsConc,
+    pub params_c2: ParamsConc,
 }
 use crate::{H, NX, NY};
 pub struct Concentration {
@@ -107,10 +121,12 @@ impl Concentration {
                 self.vy[[i, k]] = -psi.f[[i - 1, k]] - psi.f[[i - 1, k - 1]];
             }
             self.vy /= 2.0;
+           
         }
     }
-    pub fn step(&mut self, psi: &Psi, _t: &Array2<f64>, dt: f64) {
+    pub fn step(&mut self, psi: &Psi,temp:&Temperatura, dt: f64) {
         let le = self.params.le;
+        let sor = self.params.sor;
         let l = self.params.l;
 
         unsafe {
@@ -118,15 +134,17 @@ impl Concentration {
 
             for i in 1..NX {
                 for k in 0..NY {
-                    let mut tmp = (self.vx[[i, k]]-le/l) * self.mx_b((i, k));
+                    let mut tmp = (self.vx[[i, k]] ) * self.mx_b((i, k));
                     tmp += -le * self.dx_b((i, k));
+                    tmp += le * sor*temp.dx_b((i, k));
                     self.qew[[i, k]] = tmp / H;
                 }
             }
             for i in 0..NX {
                 for k in 1..NY {
-                    let mut tmp = -(self.vy[[i, k]]) * self.my_b((i, k));
+                    let mut tmp = (-self.vy[[i, k]]-le/l) * self.my_b((i, k));
                     tmp += -le * (self.dy_b((i, k)));
+                    tmp += le * sor*temp.dy_b((i, k));
                     self.qsn[[i, k]] = tmp / H;
                 }
             }
@@ -144,9 +162,23 @@ impl Concentration {
                 let k = NY - 1;
                 self.f[[i, k]] += dt / H * (-self.qew.dx_f((i, k)) + 2.0 * self.qsn[[i, k]]);
             }
-            for k in 0..NY {
-                self.f[[0, k]] = self.f[[NX - 2, k]];
-                self.f[[NX - 1, k]] = self.f[[1, k]];
+            if PEREODIC{
+                for k in 0..NY {
+                    self.f[[0, k]] = self.f[[NX - 2, k]];
+                    self.f[[NX - 1, k]] = self.f[[1, k]];
+                }
+            }else{
+                for k in 1..NY - 1 {
+                    let i= 0;
+                    self.f[[i, k]] += dt / H * (-self.qsn.dy_f((i, k)) - 2.0 * self.qew[[i+1, k]]);
+    
+                    let i = NX - 1;
+                    self.f[[i, k]] += dt / H * (-self.qsn.dy_f((i, k)) +2.0 * self.qew[[i, k]]);
+                }
+                self.f[[0, 0]] += dt / H * 2.0 *( -self.qew[[1, 0]]- self.qsn[[0, 1]]);
+                self.f[[0, NY-1]] +=  dt / H * 2.0 *( -self.qew[[1, NY-1]]+ self.qsn[[0, NY-1]]);
+                self.f[[NX-1, 0]] += dt / H * 2.0 *( self.qew[[NX-1, 0]]- self.qsn[[NX-1, 1]]);
+                self.f[[NX-1, NY-1]] += dt / H * 2.0 *( self.qew[[NX-1, NY-1]]+ self.qsn[[NX-1, NY-1]]);
             }
         }
     }
@@ -182,7 +214,7 @@ impl Phi {
             params: params,
         };
     }
-    pub fn step(&mut self, psi: &Psi, t: &Temperatura, conc: &Concentration, dt: f64) {
+    pub fn step(&mut self, psi: &Psi, t: &Temperatura, conc: &Concentration, conc2: &Concentration, dt: f64) {
         //let mut delta = Array2::<f64>::zeros((NX,NY));
         //let shape= delta.dim();
         unsafe {
@@ -193,7 +225,8 @@ impl Phi {
                     tmp += psi.dx((i, j)) * (self.dy((i, j)));
                     tmp /= H * H;
                     tmp += self.params.pr * self.params.rel * (t.dx((i, j))) / H;
-                    tmp -= self.params.pr * self.params.bm * (conc.dx((i, j))) / H;
+                    tmp -= self.params.pr * self.params.rel_c1 * (conc.dx((i, j))) / H;
+                    tmp -= self.params.pr * self.params.rel_c2 * (conc2.dx((i, j))) / H;
                     *self.delta.uget_mut((i, j)) = tmp * dt;
                 }
             }

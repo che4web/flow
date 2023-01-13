@@ -1,7 +1,15 @@
-rel=2100
-bm=300
+rel=1
+bm=1800
+bm2=3125
 pr=10
 time=200
 
-params_c.le=1.5e-4
-params_c.l=30
+[params_c]
+le=1.5e-4
+l=30
+psi=2.25
+
+[params_c2]
+le=0.6e-4
+l=12
+psi=0.625

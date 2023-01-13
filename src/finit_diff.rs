@@ -2,7 +2,7 @@ use ndarray::{Array2};
 const PEREODIC:bool  = crate::PEREODIC; 
 
 pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,h:f64)->usize{
-    const OMEGA:f64 =1.65; 
+    const OMEGA:f64 =1.8; 
     //let mut delta = Array2::<f64>::zeros((N,N));
     let shape= psi.dim();
     let nx = shape.0;
@@ -23,13 +23,13 @@ pub fn poisson_relax(phi: &Array2<f64>,psi: &mut Array2<f64>,h:f64)->usize{
             }
         }
         if PEREODIC{
-            for i in 0..ny{
-                psi[[0,i]]=psi[[nx-2,i]];
-                psi[[nx-1,i]]=psi[[2,i]];
+            for  j in 0..ny{
+                psi[[0,j]]=psi[[nx-2,j]];
+                psi[[nx-1,j]]=psi[[1,j]];
             }
         }
 
-        if nev < (1e-5 as f64){
+        if nev < (1e-6 as f64){
             //println!("{:?}|{:?} ",nev,_k);
             return _k;
             //break;
