@@ -127,8 +127,8 @@ impl Concentration {
     pub fn step(&mut self, psi: &Psi,temp:&Temperatura, dt: f64) {
         let le = self.params.le;
         let sor = self.params.sor;
-        let l = self.params.l;
-
+        let l_sed= 30.0/H;
+       //println!("{:?}",le/l);
         unsafe {
             self.calc_v(&psi);
 
@@ -136,15 +136,15 @@ impl Concentration {
                 for k in 0..NY {
                     let mut tmp = (self.vx[[i, k]] ) * self.mx_b((i, k));
                     tmp += -le * self.dx_b((i, k));
-                    tmp += le * sor*temp.dx_b((i, k));
+                    tmp += -le * sor*temp.dx_b((i, k))* self.my_b((i, k));
                     self.qew[[i, k]] = tmp / H;
                 }
             }
             for i in 0..NX {
                 for k in 1..NY {
-                    let mut tmp = (-self.vy[[i, k]]-le/l) * self.my_b((i, k));
+                    let mut tmp = (-self.vy[[i, k]]-le/l_sed) * self.my_b((i, k));
                     tmp += -le * (self.dy_b((i, k)));
-                    tmp += le * sor*temp.dy_b((i, k));
+                    tmp += -le * sor*temp.dy_b((i, k)) *self.my_b((i, k));
                     self.qsn[[i, k]] = tmp / H;
                 }
             }

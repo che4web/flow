@@ -1,2 +1,7 @@
 /target
 /res
+/res_psi
+/res_phi
+/res_temp
+/data
+foo.csv

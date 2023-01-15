@@ -96,6 +96,8 @@ fn log_params(time:f64,system: &System)->Row{
         psi_m:*(system.psi.f.max().unwrap()),
         psi_l:(system.psi.f[[NX/4,NY/2]]),
         nu:nu,
+        c_max:*(system.conc.f.max().unwrap()),
+        c_min:*(system.conc.f.min().unwrap()),
    } 
 }
 
@@ -106,6 +108,8 @@ pub struct Row{
     psi_m:f64,
     psi_l:f64,
     nu:f64,
+    c_max:f64,
+    c_min:f64,
 }
 fn read_params()->Params{
     let contents = fs::read_to_string("config.toml").unwrap() ;
@@ -143,7 +147,7 @@ fn main() {
             system.conc.f[[i,j]] = gama*f64::exp(-z*gama)/(1.0-f64::exp(-gama));
             system.conc2.f[[i,j]] = gama2*f64::exp(-z*gama2)/(1.0-f64::exp(-gama2));
             let pi =std::f64::consts::PI;
-            system.phi.f[[i,j]] =1.00;
+            system.phi.f[[i,j]] =2.00;
         }
 
        // system.phi.f[[i,NY-1]] = 0.0;
