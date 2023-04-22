@@ -1,5 +1,5 @@
-const NY:usize=65;
-const L:f64=10.0;
+const NY:usize=33;
+const L:f64=1.0;
 const NX:usize=(NY-1)*(L as usize)+1;
 
 const H:f64=L/((NX-1) as f64);
@@ -13,7 +13,7 @@ pub mod io;
 pub mod field;
 //use io::{writeMat};
 pub mod equtions;
-use equtions::{Concentration,Temperatura,Psi,Phi,Params};
+use equtions::{Temperatura,Psi,Phi,Params};
 use csv::Writer;
 use serde::{Serialize};
 use std::fs;
@@ -31,8 +31,6 @@ struct System{
     temp:Temperatura,
     psi:Psi,
     phi:Phi,
-    conc:Concentration,
-    conc2:Concentration,
 }
 
 
@@ -41,24 +39,22 @@ impl System{
 
 
     fn next_step(&mut self,_dt:f64){
-        self.phi.step(&self.psi,&self.temp,&self.conc,&self.conc2,_dt);
+        self.phi.step(&self.psi,&self.temp,_dt);
         //self.boundary_condition();
         self.psi.step(&self.phi);
         self.temp.step(&self.psi,_dt);
         self.boundary_condition();
-        self.conc.step(&self.psi,&self.temp,_dt);
-        self.conc2.step(&self.psi,&self.temp,_dt);
+        //self.conc.step(&self.psi,&self.temp,_dt);
+        //self.conc2.step(&self.psi,&self.temp,_dt);
         //self.temp.diff();
 
         //self.conc=self.step_c(&self.psi.f,&self.temp.f,&self.conc,&self.params.params_c,_dt);
-        self.boundary_condition();
+ //       self.boundary_condition();
     }
     fn boundary_condition(&mut self){
         if PEREODIC{
 
             for i in 0..NY{
-                //self.psi.f[[0,i]]=self.psi.f[[NX-2,i]];
-               // self.psi.f[[NX-1,i]]=self.psi.f[[1,i]];
 
                 self.phi.f[[0,i]]=self.phi.f[[NX-2,i]];
                 self.phi.f[[NX-1,i]]=self.phi.f[[1,i]];
@@ -66,8 +62,6 @@ impl System{
                 self.temp.f[[0,i]]=self.temp.f[[NX-2,i]];
                 self.temp.f[[NX-1,i]]=self.temp.f[[1,i]];
 
-                //self.C[[0,i]]=self.C[[NX-2,i]];
-                //self.C[[NX-1,i]]=self.C[[2,i]];
             }
         }else{
             for i in 1..NY-1{
@@ -96,8 +90,6 @@ fn log_params(time:f64,system: &System)->Row{
         psi_m:*(system.psi.f.max().unwrap()),
         psi_l:(system.psi.f[[NX/4,NY/2]]),
         nu:nu,
-        c_max:*(system.conc.f.max().unwrap()),
-        c_min:*(system.conc.f.min().unwrap()),
    } 
 }
 
@@ -108,8 +100,6 @@ pub struct Row{
     psi_m:f64,
     psi_l:f64,
     nu:f64,
-    c_max:f64,
-    c_min:f64,
 }
 fn read_params()->Params{
     let contents = fs::read_to_string("config.toml").unwrap() ;
@@ -131,8 +121,6 @@ fn main() {
         temp:Temperatura::new(NX,NY),
         phi:Phi::new(NX,NY,params),
         psi:Psi::new(NX,NY),
-        conc:Concentration::new(NX,NY,params.params_c),
-        conc2:Concentration::new(NX,NY,params.params_c2),
     };
     //set initial 
     //system.phi.f[[NX/2,NY/2]]=1.0;
@@ -144,8 +132,6 @@ fn main() {
             system.temp.f[[i,j]] = 1.0-(j as f64)*H;
             let z = (j as f64)*H;
             let x= (i as f64)*H;
-            system.conc.f[[i,j]] = gama*f64::exp(-z*gama)/(1.0-f64::exp(-gama));
-            system.conc2.f[[i,j]] = gama2*f64::exp(-z*gama2)/(1.0-f64::exp(-gama2));
             let pi =std::f64::consts::PI;
             system.phi.f[[i,j]] =2.00;
         }
@@ -168,7 +154,6 @@ fn main() {
     fs::create_dir("res_psi");
     fs::create_dir("res_phi");
     fs::create_dir("res_temp");
-    write_mat(&system.conc.f,String::from(format!("res/c_t={:05}",time)),H);
     write_mat(&system.psi.f,String::from(format!("res_psi/psi_t={:05}",time)),H);
     write_mat(&system.phi.f,String::from(format!("res_phi/phi_t={:05}",time)),H);
     while time < params.time{
@@ -182,7 +167,6 @@ fn main() {
         if time_i %10 == 0{
             let duration = start.elapsed();
             println!("{:0.2},{:?}",time/params.time,duration) ;
-            write_mat(&system.conc.f,String::from(format!("res/c_t={:05}",time)),H);
             //write_mat(&system.conc2.f,String::from(format!("res/c_t={:05}",time)),H);
             write_mat(&system.psi.f,String::from(format!("res_psi/psi_t={:05}",time)),H);
              write_mat(&system.temp.f,String::from(format!("res_temp/temp_t={:05}",time)),H);
@@ -197,6 +181,4 @@ fn main() {
     write_mat(&system.phi.f,String::from("phi"),H);
     write_mat(&system.psi.f,String::from("psi"),H);
     write_mat(&system.temp.f,String::from("t"),H);
-    write_mat(&system.conc.f,String::from("c"),H);
-    write_mat(&system.conc2.f,String::from("c2"),H);
 }
